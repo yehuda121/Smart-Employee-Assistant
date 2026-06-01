@@ -43,6 +43,7 @@ Generated Answer returned to the user
 - Input validation (required, trimmed, max 500 characters)
 - Secure error handling without exposing AWS internals to users
 - **Mock answer mode** (`USE_MOCK_ANSWER=true`) for UI and Docker testing without Bedrock
+- **Most Common Questions** sidebar — always shows the first 10 dataset FAQs with usage counters (`data/question_stats.json`)
 - Docker and Docker Compose for consistent deployment
 - Gunicorn WSGI server in production containers
 
@@ -53,6 +54,9 @@ Generated Answer returned to the user
 ```
 Smart-Employee-Assistant/
 ├── app.py                          # Flask application and Bedrock integration
+├── question_stats.py               # Popular-question tracking (JSON persistence)
+├── data/
+│   └── question_stats.json         # Runtime stats (gitignored; created automatically)
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml

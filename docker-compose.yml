@@ -8,6 +8,8 @@ services:
       - .env
     environment:
       - FLASK_APP=app.py
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/')"]

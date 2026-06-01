@@ -11,11 +11,11 @@ RUN addgroup --system app && adduser --system --ingroup app app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
+COPY app.py question_stats.py ./
 COPY templates/ templates/
 COPY static/ static/
 
-RUN chown -R app:app /app
+RUN mkdir -p /app/data && chown -R app:app /app
 USER app
 
 EXPOSE 5000

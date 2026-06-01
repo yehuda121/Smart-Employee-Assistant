@@ -29,78 +29,61 @@
   </header>
 
   <main class="main-content">
-    <div class="container layout">
-      <section class="card ask-card" aria-labelledby="ask-heading">
-        <div class="card-header">
-          <h2 id="ask-heading" class="card-title">Ask a question</h2>
-          <p class="card-description">
-            Get answers from the corporate IT Support knowledge base. Responses are generated from approved internal procedures.
-          </p>
-        </div>
-
-        <form id="ask-form" class="ask-form" novalidate>
-          <label for="question" class="form-label">Your question</label>
-          <textarea
-            id="question"
-            name="question"
-            class="form-input"
-            rows="4"
-            maxlength="500"
-            placeholder="Example: How do I request VPN access for remote work?"
-            required
-            autocomplete="off"
-          ></textarea>
-          <div class="form-footer">
-            <span id="char-count" class="char-count" aria-live="polite">0 / 500</span>
-            <button type="submit" id="submit-btn" class="btn btn-primary">
-              <span class="btn-text">Submit question</span>
-              <span class="btn-spinner" hidden aria-hidden="true"></span>
-            </button>
+    <div class="container layout-grid">
+      <div class="chat-column">
+        <section class="card ask-card" aria-labelledby="ask-heading">
+          <div class="card-header">
+            <h2 id="ask-heading" class="card-title">Ask a question</h2>
+            <p class="card-description">
+              Get answers from the corporate IT Support knowledge base. Responses are generated from approved internal procedures.
+            </p>
           </div>
-        </form>
-      </section>
 
-      <section
-        id="response-section"
-        class="card response-card"
-        aria-labelledby="response-heading"
-        hidden
-      >
-        <div class="card-header">
-          <h2 id="response-heading" class="card-title">Answer</h2>
-          <p id="response-question" class="response-question"></p>
-        </div>
-        <div id="response-body" class="response-body" role="status" aria-live="polite"></div>
-      </section>
+          <form id="ask-form" class="ask-form" novalidate>
+            <label for="question" class="form-label">Your question</label>
+            <textarea
+              id="question"
+              name="question"
+              class="form-input"
+              rows="4"
+              maxlength="500"
+              placeholder="Example: How do I request VPN access for remote work?"
+              required
+              autocomplete="off"
+            ></textarea>
+            <div class="form-footer">
+              <span id="char-count" class="char-count" aria-live="polite">0 / 500</span>
+              <button type="submit" id="submit-btn" class="btn btn-primary">
+                <span class="btn-text">Submit question</span>
+                <span class="btn-spinner" hidden aria-hidden="true"></span>
+              </button>
+            </div>
+          </form>
+        </section>
 
-      <section class="card examples-card" aria-labelledby="examples-heading">
+        <section
+          id="response-section"
+          class="card response-card"
+          aria-labelledby="response-heading"
+          hidden
+        >
+          <div class="card-header">
+            <h2 id="response-heading" class="card-title">Answer</h2>
+            <p id="response-question" class="response-question"></p>
+          </div>
+          <div id="response-body" class="response-body" role="status" aria-live="polite"></div>
+        </section>
+      </div>
+
+      <aside class="card common-panel" aria-labelledby="common-heading">
         <div class="card-header">
-          <h2 id="examples-heading" class="card-title">Suggested questions</h2>
-          <p class="card-description">Select a common topic to populate the question field.</p>
+          <h2 id="common-heading" class="card-title">Most Common Questions</h2>
+          <p class="card-description">Popular successful questions from your organization.</p>
         </div>
-        <ul class="examples-list" role="list">
-          <li>
-            <button type="button" class="example-chip" data-question="How do I request VPN access?">
-              How do I request VPN access?
-            </button>
-          </li>
-          <li>
-            <button type="button" class="example-chip" data-question="How do I reset my corporate password?">
-              How do I reset my corporate password?
-            </button>
-          </li>
-          <li>
-            <button type="button" class="example-chip" data-question="How do I request Production access?">
-              How do I request Production access?
-            </button>
-          </li>
-          <li>
-            <button type="button" class="example-chip" data-question="How do I install approved software?">
-              How do I install approved software?
-            </button>
-          </li>
+        <ul id="common-questions-list" class="common-questions-list" role="list" aria-live="polite">
+          <li class="common-empty" aria-hidden="true">Loading common questions...</li>
         </ul>
-      </section>
+      </aside>
     </div>
   </main>
 
@@ -125,10 +108,10 @@
       const responseSection = document.getElementById("response-section");
       const responseBody = document.getElementById("response-body");
       const responseQuestion = document.getElementById("response-question");
+      const commonList = document.getElementById("common-questions-list");
       const btnText = submitBtn.querySelector(".btn-text");
       const btnSpinner = submitBtn.querySelector(".btn-spinner");
       const maxLength = 500;
-
       function updateCharCount() {
         const len = questionInput.value.length;
         charCount.textContent = len + " / " + maxLength;
@@ -142,6 +125,9 @@
         btnSpinner.hidden = !isLoading;
         submitBtn.classList.toggle("is-loading", isLoading);
         form.classList.toggle("is-loading", isLoading);
+        commonList.querySelectorAll(".common-question-btn").forEach(function (btn) {
+          btn.disabled = isLoading;
+        });
       }
 
       function showResponse(question, answer, isError) {
@@ -152,26 +138,56 @@
         responseSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
 
-      questionInput.addEventListener("input", updateCharCount);
-      updateCharCount();
+      function renderCommonQuestions(questions) {
+        commonList.innerHTML = "";
 
-      document.querySelectorAll(".example-chip").forEach(function (chip) {
-        chip.addEventListener("click", function () {
-          questionInput.value = chip.getAttribute("data-question") || "";
-          updateCharCount();
-          questionInput.focus();
+        (questions || []).forEach(function (item) {
+          const li = document.createElement("li");
+          li.className = "common-item";
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "common-question-btn";
+          button.setAttribute("data-question", item.question);
+
+          const text = document.createElement("span");
+          text.className = "common-question-text";
+          text.textContent = item.question;
+
+          const count = document.createElement("span");
+          count.className = "common-question-count";
+          count.textContent = "(" + item.count + ")";
+
+          button.appendChild(text);
+          button.appendChild(count);
+          button.addEventListener("click", function () {
+            questionInput.value = item.question;
+            updateCharCount();
+            form.requestSubmit();
+          });
+
+          li.appendChild(button);
+          commonList.appendChild(li);
         });
-      });
+      }
 
-      form.addEventListener("submit", async function (event) {
-        event.preventDefault();
-        const question = questionInput.value.trim();
-        if (!question) {
-          showResponse("", "Please enter a question.", true);
-          questionInput.focus();
-          return;
+      async function loadCommonQuestions() {
+        try {
+          const response = await fetch("{{ url_for('common_questions') }}", {
+            headers: { "Accept": "application/json" }
+          });
+          const data = await response.json();
+          if (data.success) {
+            renderCommonQuestions(data.questions);
+          } else {
+            renderCommonQuestions([]);
+          }
+        } catch (err) {
+          renderCommonQuestions([]);
         }
+      }
 
+      async function submitQuestion(question) {
         setLoading(true);
         responseBody.classList.remove("response-error");
 
@@ -189,6 +205,9 @@
 
           if (data.success && data.answer) {
             showResponse(data.question || question, data.answer, false);
+            if (data.common_questions) {
+              renderCommonQuestions(data.common_questions);
+            }
           } else {
             showResponse(question, data.error || "An unexpected error occurred.", true);
           }
@@ -201,6 +220,21 @@
         } finally {
           setLoading(false);
         }
+      }
+
+      questionInput.addEventListener("input", updateCharCount);
+      updateCharCount();
+      loadCommonQuestions();
+
+      form.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const question = questionInput.value.trim();
+        if (!question) {
+          showResponse("", "Please enter a question.", true);
+          questionInput.focus();
+          return;
+        }
+        await submitQuestion(question);
       });
     })();
   </script>

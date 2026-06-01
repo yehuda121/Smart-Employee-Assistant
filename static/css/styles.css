@@ -51,7 +51,7 @@ body {
 
 .container {
   width: 100%;
-  max-width: 880px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 0 1.25rem;
 }
@@ -136,10 +136,18 @@ body {
   padding: 2rem 0 3rem;
 }
 
-.layout {
+.layout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.chat-column {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-width: 0;
 }
 
 /* Cards */
@@ -316,38 +324,80 @@ body {
   padding: 1rem 1.125rem;
 }
 
-/* Examples */
-.examples-list {
+/* Most Common Questions panel */
+.common-panel {
+  position: sticky;
+  top: 5.5rem;
+  padding: 1.25rem;
+}
+
+.common-questions-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.625rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 28rem;
 }
 
-.example-chip {
+.common-item {
+  margin: 0;
+}
+
+.common-question-btn {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
   font-family: var(--font);
   font-size: 0.875rem;
   font-weight: 500;
+  line-height: 1.45;
+  text-align: left;
   color: var(--navy-800);
-  background: var(--blue-100);
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 0.5rem 1rem;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
   cursor: pointer;
-  transition: background var(--transition), border-color var(--transition), color var(--transition);
+  transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
 }
 
-.example-chip:hover {
-  background: var(--white);
-  border-color: var(--blue-500);
-  color: var(--blue-600);
+.common-question-btn:hover:not(:disabled) {
+  background: var(--blue-100);
+  border-color: rgba(47, 111, 237, 0.35);
 }
 
-.example-chip:focus {
+.common-question-btn:focus {
   outline: none;
   box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.2);
+}
+
+.common-question-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.common-question-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.common-question-count {
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--blue-600);
+  white-space: nowrap;
+}
+
+.common-empty {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  line-height: 1.5;
+  padding: 0.5rem 0;
 }
 
 /* Footer */
@@ -384,6 +434,25 @@ body {
 }
 
 /* Responsive */
+@media (max-width: 900px) {
+  .layout-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .common-panel {
+    position: static;
+    order: 2;
+  }
+
+  .chat-column {
+    order: 1;
+  }
+
+  .common-questions-list {
+    min-height: 0;
+  }
+}
+
 @media (max-width: 640px) {
   .header-inner {
     flex-direction: column;

@@ -16,6 +16,8 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from flask import Flask, jsonify, render_template, request
 
+from question_stats import get_top_questions, record_successful_question
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -337,6 +339,11 @@ def generate_mock_answer(question: str) -> str:
     )
 
 
+def is_fallback_answer(answer: str) -> bool:
+    """Return True when the answer is the standard knowledge-base not-found message."""
+    return answer.strip() == KB_NOT_FOUND_MESSAGE
+
+
 def get_answer(question: str) -> str:
     """Resolve an answer using mock mode or Amazon Bedrock Knowledge Base."""
     if _env_bool("USE_MOCK_ANSWER", default=False):
@@ -349,6 +356,17 @@ def get_answer(question: str) -> str:
 def index():
     """Render the home page."""
     return render_template("index.html")
+
+
+@app.route("/api/common-questions", methods=["GET"])
+def common_questions():
+    """Return the top successful questions ranked by popularity."""
+    try:
+        questions = get_top_questions()
+        return jsonify({"success": True, "questions": questions})
+    except Exception as exc:
+        logger.exception("Failed to load common questions: %s", exc)
+        return jsonify({"success": True, "questions": []})
 
 
 @app.route("/ask", methods=["POST"])
@@ -365,7 +383,20 @@ def ask():
 
     try:
         answer = get_answer(question)
-        return jsonify({"success": True, "answer": answer, "question": question})
+        common = get_top_questions()
+        if not is_fallback_answer(answer):
+            try:
+                record_successful_question(question)
+                common = get_top_questions()
+            except Exception as exc:
+                logger.exception("Failed to record question stats: %s", exc)
+
+        return jsonify({
+            "success": True,
+            "answer": answer,
+            "question": question,
+            "common_questions": common,
+        })
     except ClientError as exc:
         logger.exception("AWS Bedrock client error: %s", exc.response.get("Error", {}).get("Code"))
         return jsonify({"success": False, "error": USER_ERROR_MESSAGE}), 502
