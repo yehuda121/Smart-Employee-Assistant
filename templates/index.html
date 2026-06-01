@@ -8,39 +8,71 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
-  <header class="site-header">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <header class="site-header" role="banner">
+    <div class="header-accent" aria-hidden="true"></div>
     <div class="container header-inner">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true"></div>
+        <div class="brand-mark" aria-hidden="true">
+          <svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 3L4 8v8l8 5 8-5V8l-8-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M12 12l8-5M12 12L4 7M12 12v9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
         <div class="brand-text">
+          <p class="brand-eyebrow">Internal Employee Portal</p>
           <h1 class="brand-title">Smart Employee Assistant</h1>
-          <p class="brand-subtitle">AI-powered IT Support Knowledge Assistant</p>
+          <p class="brand-subtitle">AI-Powered IT Support Knowledge Assistant</p>
         </div>
       </div>
       <nav class="header-meta" aria-label="Product information">
-        <span class="meta-badge">Internal Use</span>
+        <span class="meta-badge">
+          <span class="meta-dot" aria-hidden="true"></span>
+          Internal Use
+        </span>
         <span class="meta-divider" aria-hidden="true"></span>
-        <span class="meta-label">Amdocs IT</span>
+        <span class="meta-label">Corporate IT · Knowledge Base</span>
       </nav>
     </div>
   </header>
 
-  <main class="main-content">
+  <main id="main-content" class="main-content">
+    <div class="container page-intro">
+      <p class="page-context">
+        <span class="page-context-label">Workspace</span>
+        IT Support Self-Service
+      </p>
+      <p class="page-lead">
+        Search approved internal procedures for access requests, account support, software, VPN, and production systems.
+      </p>
+    </div>
+
     <div class="container layout-grid">
       <div class="chat-column">
-        <section class="card ask-card" aria-labelledby="ask-heading">
-          <div class="card-header">
-            <h2 id="ask-heading" class="card-title">Ask a question</h2>
-            <p class="card-description">
-              Get answers from the corporate IT Support knowledge base. Responses are generated from approved internal procedures.
-            </p>
-          </div>
+        <section class="workspace-card ask-card" aria-labelledby="ask-heading">
+          <header class="panel-header panel-header--primary">
+            <div class="panel-icon panel-icon--primary" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="panel-header-text">
+              <h2 id="ask-heading" class="panel-title">Ask the assistant</h2>
+              <p class="panel-description">
+                Submit a question to retrieve answers from the corporate IT Support knowledge base. Responses are grounded in approved internal procedures.
+              </p>
+            </div>
+          </header>
 
           <form id="ask-form" class="ask-form" novalidate>
             <label for="question" class="form-label">Your question</label>
+            <p class="form-hint" id="question-hint">
+              Be specific about the system or process (for example, VPN, password reset, or software installation).
+            </p>
             <textarea
               id="question"
               name="question"
@@ -50,6 +82,7 @@
               placeholder="Example: How do I request VPN access for remote work?"
               required
               autocomplete="off"
+              aria-describedby="question-hint char-count"
             ></textarea>
             <div class="form-footer">
               <span id="char-count" class="char-count" aria-live="polite">0 / 500</span>
@@ -63,31 +96,58 @@
 
         <section
           id="response-section"
-          class="card response-card"
+          class="workspace-card response-card"
           aria-labelledby="response-heading"
           hidden
         >
-          <div class="card-header">
-            <h2 id="response-heading" class="card-title">Answer</h2>
-            <p id="response-question" class="response-question"></p>
+          <header class="panel-header panel-header--response">
+            <div class="panel-icon panel-icon--ai" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <div class="panel-header-text">
+              <div class="response-label-row">
+                <span class="ai-response-badge">Knowledge Base Response</span>
+                <h2 id="response-heading" class="panel-title visually-hidden">Answer</h2>
+              </div>
+              <p id="response-question" class="response-question"></p>
+            </div>
+          </header>
+          <div class="response-panel">
+            <div id="response-body" class="response-body" role="status" aria-live="polite"></div>
           </div>
-          <div id="response-body" class="response-body" role="status" aria-live="polite"></div>
         </section>
       </div>
 
-      <aside class="card common-panel" aria-labelledby="common-heading">
-        <div class="card-header">
-          <h2 id="common-heading" class="card-title">Most Common Questions</h2>
-          <p class="card-description">Popular successful questions from your organization.</p>
+      <aside class="widget-card common-panel" aria-labelledby="common-heading">
+        <header class="widget-header">
+          <div class="widget-header-top">
+            <div class="panel-icon panel-icon--analytics" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M4 20V10M10 20V4M16 20v-6M22 20H2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <h2 id="common-heading" class="widget-title">Most Common Questions</h2>
+              <p class="widget-subtitle">Usage across your organization</p>
+            </div>
+          </div>
+          <p class="widget-description">
+            Select a frequently asked question to populate the assistant. Counts reflect successful knowledge base answers.
+          </p>
+        </header>
+        <div class="widget-body">
+          <ul id="common-questions-list" class="common-questions-list" role="list" aria-live="polite">
+            <li class="common-empty">Loading common questions...</li>
+          </ul>
         </div>
-        <ul id="common-questions-list" class="common-questions-list" role="list" aria-live="polite">
-          <li class="common-empty" aria-hidden="true">Loading common questions...</li>
-        </ul>
       </aside>
     </div>
   </main>
 
-  <footer class="site-footer">
+  <footer class="site-footer" role="contentinfo">
     <div class="container footer-inner">
       <p class="footer-text">
         Smart Employee Assistant &mdash; Powered by Amazon Bedrock Knowledge Base
@@ -112,6 +172,7 @@
       const btnText = submitBtn.querySelector(".btn-text");
       const btnSpinner = submitBtn.querySelector(".btn-spinner");
       const maxLength = 500;
+
       function updateCharCount() {
         const len = questionInput.value.length;
         charCount.textContent = len + " / " + maxLength;
@@ -205,6 +266,8 @@
 
           if (data.success && data.answer) {
             showResponse(data.question || question, data.answer, false);
+            questionInput.value = "";
+            updateCharCount();
             if (data.common_questions) {
               renderCommonQuestions(data.common_questions);
             }

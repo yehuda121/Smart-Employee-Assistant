@@ -1,8 +1,9 @@
 """
 Persistent tracking of successful IT Support questions for the Most Common Questions panel.
-Stores only normalized keys, display text, and counts — no answers or user data.
+Stores only normalized keys, display text, usage counts, and insertion order — no answers or user data.
 
-The panel always shows exactly 10 pre-defined FAQ questions from the dataset (IT-001–IT-010).
+The first 10 dataset FAQ items are seeded as placeholders (count 0). Any successful question
+can enter the top-10 list when its count exceeds others.
 """
 
 import csv
@@ -36,7 +37,7 @@ def normalize_question_key(question: str) -> str:
 
 
 def _load_default_questions_from_dataset() -> list[dict[str, Any]]:
-    """Load the first 10 FAQ questions from the IT Support dataset."""
+    """Load the first 10 FAQ questions from the IT Support dataset as initial placeholders."""
     defaults: list[dict[str, Any]] = []
     if not DATASET_FILE.exists():
         logger.error("Dataset file not found: %s", DATASET_FILE)
@@ -61,11 +62,6 @@ def _load_default_questions_from_dataset() -> list[dict[str, Any]]:
 
 
 DEFAULT_QUESTIONS: list[dict[str, Any]] = _load_default_questions_from_dataset()
-DEFAULT_QUESTION_KEYS: frozenset[str] = frozenset(
-    normalize_question_key(item["question"])
-    for item in DEFAULT_QUESTIONS
-    if item.get("question")
-)
 
 
 def _ensure_stats_file() -> None:
@@ -110,36 +106,92 @@ def _save_stats_unlocked(handle, stats: dict[str, Any]) -> None:
     os.fsync(handle.fileno())
 
 
+def _parse_count(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _parse_order(value: Any, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _max_order(stats: dict[str, Any]) -> int:
+    maximum = -1
+    for entry in stats.values():
+        if isinstance(entry, dict) and "order" in entry:
+            maximum = max(maximum, _parse_order(entry.get("order"), 0))
+    return maximum
+
+
 def _merge_default_entries(stats: dict[str, Any]) -> dict[str, Any]:
     """
-    Ensure all 10 default FAQ questions exist in stats with count >= 0.
-    Display text always follows the dataset wording.
+    Seed the 10 default FAQ questions with count 0 when missing.
+    Existing counts and custom questions are preserved.
     """
     merged = dict(stats)
+
     for item in DEFAULT_QUESTIONS:
         question = item["question"]
         key = normalize_question_key(question)
+        default_order = item["order"]
         entry = merged.get(key)
+
         if isinstance(entry, dict):
-            count = entry.get("count", 0)
-            try:
-                count_int = max(0, int(count))
-            except (TypeError, ValueError):
-                count_int = 0
-            merged[key] = {"display": question, "count": count_int}
+            merged[key] = {
+                "display": question,
+                "count": _parse_count(entry.get("count")),
+                "order": _parse_order(entry.get("order"), default_order),
+            }
         else:
-            merged[key] = {"display": question, "count": 0}
+            merged[key] = {
+                "display": question,
+                "count": 0,
+                "order": default_order,
+            }
+
     return merged
 
 
+def _normalize_all_entries(stats: dict[str, Any]) -> dict[str, Any]:
+    """Ensure every entry has display, count, and order fields."""
+    merged = _merge_default_entries(stats)
+    next_order = _max_order(merged) + 1
+    normalized: dict[str, Any] = {}
+
+    for key, entry in merged.items():
+        if not isinstance(entry, dict):
+            continue
+        display = entry.get("display")
+        if not isinstance(display, str) or not display.strip():
+            continue
+
+        order = entry.get("order")
+        if order is None:
+            order = next_order
+            next_order += 1
+
+        normalized[key] = {
+            "display": display.strip(),
+            "count": _parse_count(entry.get("count")),
+            "order": _parse_order(order, next_order),
+        }
+
+    return normalized
+
+
 def load_stats() -> dict[str, Any]:
-    """Load question statistics from disk, merged with default FAQ entries."""
+    """Load question statistics from disk, seeded with default FAQ placeholders."""
     _ensure_stats_file()
     with open(STATS_FILE, "r+", encoding="utf-8") as handle:
         _lock_file(handle)
         try:
             stats = _load_stats_unlocked(handle)
-            merged = _merge_default_entries(stats)
+            merged = _normalize_all_entries(stats)
             if merged != stats:
                 _save_stats_unlocked(handle, merged)
             return merged
@@ -149,20 +201,33 @@ def load_stats() -> dict[str, Any]:
 
 def record_successful_question(question: str) -> None:
     """
-    Increment count when a default FAQ question receives a successful answer.
-    Only the 10 pre-defined dataset questions are tracked for the panel.
+    Record a successful (non-fallback) question.
+    Increments count for known questions; adds new questions with count 1.
     """
     key = normalize_question_key(question)
-    if not key or key not in DEFAULT_QUESTION_KEYS:
+    if not key:
         return
 
+    display = question.strip()
     _ensure_stats_file()
+
     with open(STATS_FILE, "r+", encoding="utf-8") as handle:
         _lock_file(handle)
         try:
-            stats = _merge_default_entries(_load_stats_unlocked(handle))
-            entry = stats[key]
-            entry["count"] = int(entry.get("count", 0)) + 1
+            stats = _normalize_all_entries(_load_stats_unlocked(handle))
+            entry = stats.get(key)
+
+            if isinstance(entry, dict):
+                entry["count"] = _parse_count(entry.get("count")) + 1
+                if not entry.get("display"):
+                    entry["display"] = display
+            else:
+                stats[key] = {
+                    "display": display,
+                    "count": 1,
+                    "order": _max_order(stats) + 1,
+                }
+
             _save_stats_unlocked(handle, stats)
         finally:
             _unlock_file(handle)
@@ -170,28 +235,24 @@ def record_successful_question(question: str) -> None:
 
 def get_top_questions(limit: int = TOP_QUESTIONS_LIMIT) -> list[dict[str, Any]]:
     """
-    Return exactly 10 default FAQ questions with usage counts.
-    Sorted by count descending; ties preserve original dataset order.
+    Return the top questions by usage count across all tracked questions.
+    Sorted by count descending; ties preserve insertion order.
     """
     stats = load_stats()
     items: list[dict[str, Any]] = []
 
-    for item in DEFAULT_QUESTIONS:
-        question = item["question"]
-        key = normalize_question_key(question)
-        entry = stats.get(key, {})
-        count = 0
-        if isinstance(entry, dict):
-            try:
-                count = max(0, int(entry.get("count", 0)))
-            except (TypeError, ValueError):
-                count = 0
+    for entry in stats.values():
+        if not isinstance(entry, dict):
+            continue
+        display = entry.get("display")
+        if not isinstance(display, str) or not display.strip():
+            continue
 
         items.append(
             {
-                "question": question,
-                "count": count,
-                "order": item["order"],
+                "question": display.strip(),
+                "count": _parse_count(entry.get("count")),
+                "order": _parse_order(entry.get("order"), 0),
             }
         )
 
