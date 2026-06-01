@@ -6,7 +6,7 @@ AI-powered internal IT Support assistant for employees. Users submit free-text q
 
 ## Project overview
 
-Smart Employee Assistant is a production-oriented Flask application that connects employees to approved IT procedures—VPN access, password reset, production access, software installation, ServiceNow workflows, and more—using retrieval-augmented generation (RAG) on Amazon Bedrock.
+Smart Employee Assistant is a enterprise-oriented Flask application that connects employees to approved IT procedures—VPN access, password reset, production access, software installation, ServiceNow workflows, and more—using retrieval-augmented generation (RAG) on Amazon Bedrock.
 
 The knowledge base is populated from `dataset/it_support_faq_dataset.csv` and supporting documents in `knowledge_base/IT/`.
 
@@ -68,6 +68,7 @@ Smart-Employee-Assistant/
 ├── static/
 │   └── css/
 │       └── styles.css
+├── screenshots/                    # UI, AWS, and EC2 documentation images
 ├── dataset/
 │   └── it_support_faq_dataset.csv  # IT Support FAQ dataset for Bedrock ingestion
 └── knowledge_base/
@@ -160,7 +161,7 @@ docker compose down
 ## Deploy on Amazon EC2 (overview)
 
 1. Launch an EC2 instance (Amazon Linux 2023 or Ubuntu 22.04) in the same region as your Bedrock Knowledge Base.
-2. Attach an **IAM instance profile** with permissions for `bedrock:RetrieveAndGenerate` and related Bedrock actions on your knowledge base.
+2. Configure AWS credentials and Bedrock settings using environment variables.
 3. Install Docker and Docker Compose, clone this repository, and configure `.env` with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and Bedrock settings.
 4. Set `USE_MOCK_ANSWER=false` for live Knowledge Base queries.
 5. Run `docker compose up -d` and place an Application Load Balancer or reverse proxy (nginx) in front with TLS.
@@ -192,11 +193,102 @@ The IT Support FAQ CSV (`dataset/it_support_faq_dataset.csv`) contains 90 entrie
 
 ## Screenshots
 
-<!-- Add screenshots of the home page and sample Q&A response here -->
+The following images document the Smart Employee Assistant UI, Amazon Bedrock Knowledge Base configuration, and EC2 deployment workflow. All screenshots are stored in the [`screenshots/`](screenshots/) directory.
 
-| Home page | Sample answer |
-|-----------|---------------|
-| _Screenshot pending_ | _Screenshot pending_ |
+### Web application (Flask)
+
+Enterprise home page with the question form, **Most Common Questions** analytics sidebar, and internal IT Support branding.
+
+![Smart Employee Assistant — Flask web application home page](screenshots/Flask%20app.png)
+
+*Figure 1 — Local Flask application: ask-a-question workspace and Most Common Questions panel.*
+
+---
+
+### Amazon Bedrock Knowledge Base
+
+Knowledge Base resource in the AWS console and successful data source synchronization after ingesting the IT Support dataset.
+
+![Amazon Bedrock Knowledge Base in the AWS console](screenshots/knowledge%20base%20on%20AWS.png)
+
+*Figure 2 — Bedrock Knowledge Base configured for IT Support content.*
+
+![Knowledge Base data source sync completed successfully](screenshots/sync%20success.png)
+
+*Figure 3 — Data source sync status after uploading FAQ / procedure documents to S3.*
+
+---
+
+### EC2 deployment and operations
+
+End-to-end deployment on Amazon EC2: instance setup, cloning the repository, Docker installation, and the application running in production.
+
+![EC2 instance — initial setup](screenshots/EC2%20first%20initial.png)
+
+*Figure 4 — EC2 environment prepared for application deployment.*
+
+![Clone project repository on EC2](screenshots/clone%20project%20from%20git%20using%20EC2%20.png)
+
+*Figure 5 — Project cloned from Git on the EC2 host.*
+
+![EC2 terminal after Docker installation](screenshots/ec2%20terminal%20after%20docker%20installation.png)
+
+*Figure 6 — Docker installed and ready to run the containerized Flask app.*
+
+![Smart Employee Assistant running on EC2](screenshots/the%20app%20running%20on%20EC2.png)
+
+*Figure 7 — Application accessible on EC2 (port 5000 / load balancer as configured).*
+
+---
+
+### Q&A examples on EC2 (successful Knowledge Base answers)
+
+Sample employee questions with grounded answers returned from the Knowledge Base via Bedrock.
+
+![EC2 — successful Knowledge Base answer (example 1)](screenshots/(EC2)%20getting%20an%20answer.png)
+
+*Figure 8 — Successful response generated from retrieved IT procedures.*
+
+![EC2 — successful Knowledge Base answer (example 2)](screenshots/(EC2)%20getting%20an%20answer%202.png)
+
+*Figure 9 — Additional successful Q&A session on EC2.*
+
+![EC2 — successful Knowledge Base answer (example 3)](screenshots/(EC2)%20getting%20an%20answer%203.png)
+
+*Figure 10 — Follow-up question with Knowledge Base–grounded answer.*
+
+---
+
+### Q&A examples on EC2 (fallback responses)
+
+When the Knowledge Base does not contain a relevant match, the application returns the standard IT Service Desk fallback message (no general-knowledge answers).
+
+![EC2 — fallback response when no KB match (example 1)](screenshots/(EC2)%20getting%20an%20answer%20(fallback)1.png)
+
+*Figure 11 — Fallback message displayed when retrieval cannot answer from the knowledge base.*
+
+![EC2 — fallback response when no KB match (example 2)](screenshots/(EC2)%20getting%20an%20answer%20(fallback)2.png)
+
+*Figure 12 — Fallback behavior for out-of-scope or unmatched employee questions.*
+
+---
+
+### Screenshot index
+
+| File | Description |
+|------|-------------|
+| `Flask app.png` | Local Flask UI — question form and Most Common Questions sidebar |
+| `knowledge base on AWS.png` | Bedrock Knowledge Base in AWS console |
+| `sync success.png` | Successful Knowledge Base data source sync |
+| `EC2 first initial.png` | EC2 initial deployment setup |
+| `clone project from git using EC2 .png` | Git clone on EC2 |
+| `ec2 terminal after docker installation.png` | Docker ready on EC2 |
+| `the app running on EC2.png` | Application running on EC2 |
+| `(EC2) getting an answer.png` | Successful KB answer (example 1) |
+| `(EC2) getting an answer 2.png` | Successful KB answer (example 2) |
+| `(EC2) getting an answer 3.png` | Successful KB answer (example 3) |
+| `(EC2) getting an answer (fallback)1.png` | Fallback response (example 1) |
+| `(EC2) getting an answer (fallback)2.png` | Fallback response (example 2) |
 
 ---
 
