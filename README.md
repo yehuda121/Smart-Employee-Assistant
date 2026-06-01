@@ -223,6 +223,8 @@ Knowledge Base resource in the AWS console and successful data source synchroniz
 
 End-to-end deployment on Amazon EC2: instance setup, cloning the repository, Docker installation, and the application running in production.
 
+> **Note:** After all EC2 deployment screenshots and application validation were completed, the instance was stopped to avoid ongoing compute charges. This stop action is recommended for non-production test environments when the host is not in active use.
+
 ![EC2 instance — initial setup](screenshots/EC2%20first%20initial.png)
 
 *Figure 4 — EC2 environment prepared for application deployment.*
