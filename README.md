@@ -12,6 +12,12 @@ The knowledge base is populated from `dataset/it_support_faq_dataset.csv` and su
 
 ---
 
+## Topic
+
+Internal IT Support Knowledge Assistant (Amdocs Demo)
+
+---
+
 ## Architecture
 
 ```
@@ -173,6 +179,16 @@ Do not expose the instance directly to the public internet without authenticatio
 
 ---
 
+## Public Deployment
+
+The application was successfully tested on:
+
+http://3.239.124.41:5000
+
+The EC2 instance was stopped after testing to avoid unnecessary AWS charges.
+
+---
+
 ## Mock answer mode
 
 Set `USE_MOCK_ANSWER=true` in `.env` when:
@@ -291,6 +307,17 @@ When the Knowledge Base does not contain a relevant match, the application retur
 | `(EC2) getting an answer 3.png` | Successful KB answer (example 3) |
 | `(EC2) getting an answer (fallback)1.png` | Fallback response (example 1) |
 | `(EC2) getting an answer (fallback)2.png` | Fallback response (example 2) |
+
+---
+
+## Resources Cleanup
+
+After testing and documentation were completed:
+
+- EC2 instance was stopped.
+- Security groups remained for documentation purposes.
+- Bedrock Knowledge Base remained available for future testing.
+- No additional AWS resources were left running unintentionally.
 
 ---
 
