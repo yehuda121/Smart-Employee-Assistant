@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 TOP_QUESTIONS_LIMIT = 10
 ENTITY_TYPE_QUESTION = "QUESTION"
+ENTITY_TYPE_SYSTEM = "SYSTEM"
+KB_SYNC_STATUS_ID = "SYSTEM#KB_SYNC_STATUS"
 
 SORT_POPULAR = "popular"
 SORT_RECENT = "recent"
@@ -152,7 +154,11 @@ def _scan_all_items(table) -> list[dict[str, Any]]:
 
 
 def _table_is_empty(table) -> bool:
-    response = table.scan(Limit=1)
+    response = table.scan(
+        FilterExpression="entityType = :entityType",
+        ExpressionAttributeValues={":entityType": ENTITY_TYPE_QUESTION},
+        Limit=1,
+    )
     return len(response.get("Items", [])) == 0
 
 
@@ -320,13 +326,125 @@ def delete_question(question_id: str) -> bool:
     if not question_id or not isinstance(question_id, str):
         return False
 
+    question_id = question_id.strip()
+    if question_id.startswith("SYSTEM#"):
+        logger.warning("Refusing to delete internal system record: %s", question_id)
+        return False
+
     try:
         table = _get_table()
-        table.delete_item(Key={"questionId": question_id.strip()})
+        table.delete_item(Key={"questionId": question_id})
         return True
     except (ClientError, BotoCoreError) as exc:
         logger.exception("Failed to delete question %s from DynamoDB: %s", question_id, exc)
         return False
     except Exception as exc:
         logger.exception("Unexpected error deleting question %s: %s", question_id, exc)
+        return False
+
+
+def _coerce_bool(value: Any, default: bool = True) -> bool:
+    """Normalize DynamoDB or serialized values into a strict boolean."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Decimal):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes"):
+            return True
+        if normalized in ("false", "0", "no"):
+            return False
+        return default
+    if value is None:
+        return default
+    return bool(value)
+
+
+def get_kb_sync_status() -> tuple[dict[str, Any], bool]:
+    """
+    Return the global Knowledge Base synchronization state from the hidden system record.
+    Returns (status, success). Defaults to synced when the record does not exist.
+    """
+    default_status = {
+        "isSynced": True,
+        "lastSyncRequestedAt": None,
+        "updatedAt": None,
+    }
+
+    try:
+        table = _get_table()
+        response = table.get_item(Key={"questionId": KB_SYNC_STATUS_ID})
+        item = response.get("Item")
+        if not item:
+            return default_status, True
+
+        return {
+            "isSynced": _coerce_bool(item.get("isSynced"), default=True),
+            "lastSyncRequestedAt": item.get("lastSyncRequestedAt"),
+            "updatedAt": item.get("updatedAt"),
+        }, True
+    except (ClientError, BotoCoreError) as exc:
+        logger.exception("Failed to load Knowledge Base sync status: %s", exc)
+        return default_status, False
+    except Exception as exc:
+        logger.exception("Unexpected error loading Knowledge Base sync status: %s", exc)
+        return default_status, False
+
+
+def set_kb_sync_pending() -> bool:
+    """Mark the Knowledge Base as having pending changes after a CSV update."""
+    now = _utc_now_iso()
+
+    try:
+        table = _get_table()
+        table.update_item(
+            Key={"questionId": KB_SYNC_STATUS_ID},
+            UpdateExpression=(
+                "SET entityType = :entityType, "
+                "isSynced = :isSynced, "
+                "updatedAt = :updatedAt"
+            ),
+            ExpressionAttributeValues={
+                ":entityType": ENTITY_TYPE_SYSTEM,
+                ":isSynced": False,
+                ":updatedAt": now,
+            },
+        )
+        return True
+    except (ClientError, BotoCoreError) as exc:
+        logger.exception("Failed to mark Knowledge Base sync as pending: %s", exc)
+        return False
+    except Exception as exc:
+        logger.exception("Unexpected error marking Knowledge Base sync pending: %s", exc)
+        return False
+
+
+def set_kb_sync_completed() -> bool:
+    """Mark the Knowledge Base as synced after a successful Bedrock ingestion request."""
+    now = _utc_now_iso()
+
+    try:
+        table = _get_table()
+        table.update_item(
+            Key={"questionId": KB_SYNC_STATUS_ID},
+            UpdateExpression=(
+                "SET entityType = :entityType, "
+                "isSynced = :isSynced, "
+                "lastSyncRequestedAt = :lastSyncRequestedAt, "
+                "updatedAt = :updatedAt"
+            ),
+            ExpressionAttributeValues={
+                ":entityType": ENTITY_TYPE_SYSTEM,
+                ":isSynced": True,
+                ":lastSyncRequestedAt": now,
+                ":updatedAt": now,
+            },
+        )
+        return True
+    except (ClientError, BotoCoreError) as exc:
+        logger.exception("Failed to mark Knowledge Base sync as completed: %s", exc)
+        return False
+    except Exception as exc:
+        logger.exception("Unexpected error marking Knowledge Base sync completed: %s", exc)
         return False

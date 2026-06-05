@@ -1,59 +1,148 @@
 # Smart Employee Assistant
 
-AI-powered internal IT Support assistant for employees. Users submit free-text questions through a web interface; answers are generated from an **Amazon Bedrock Knowledge Base** backed by the corporate IT Support dataset (Amdocs Demo).
+Internal IT Support assistant for employees. Users submit questions through a web interface; answers are generated from an **Amazon Bedrock Knowledge Base** backed by an IT Support FAQ dataset stored in **Amazon S3** and indexed for retrieval-augmented generation (RAG).
 
 ---
 
-## Project overview
+## Overview
 
-Smart Employee Assistant is a enterprise-oriented Flask application that connects employees to approved IT procedures—VPN access, password reset, production access, software installation, ServiceNow workflows, and more—using retrieval-augmented generation (RAG) on Amazon Bedrock.
+Smart Employee Assistant is a Flask application that connects employees to approved IT procedures—VPN access, password reset, production access, software installation, ServiceNow workflows, and related topics—using Bedrock Knowledge Base retrieval.
 
-The knowledge base is populated from `dataset/it_support_faq_dataset.csv` and supporting documents in `knowledge_base/IT/`.
+The application has two primary surfaces:
 
----
+| Surface | Audience | Purpose |
+|---------|----------|---------|
+| **Employee home** (`/`) | All employees | Ask questions and receive Knowledge Base answers |
+| **IT Portal** (`/it-login`, `/it-portal`) | IT Operations | Review question analytics and manage Knowledge Base content |
 
-## Topic
-
-Internal IT Support Knowledge Assistant (Amdocs Demo)
+The Knowledge Base source of truth for FAQ content is a CSV file in S3. Question usage metrics are stored separately in DynamoDB. These layers are intentionally decoupled so analytics changes do not affect indexed content, and vice versa.
 
 ---
 
 ## Architecture
 
 ```
-User
-  |
-  v
-Flask Web App (templates + REST /ask)
-  |
-  v
-boto3 (bedrock-agent-runtime)
-  |
-  v
-Amazon Bedrock Knowledge Base
-  |
-  v
-S3 Dataset (ingested FAQ / procedure documents)
-  |
-  v
-Generated Answer returned to the user
+Employee browser
+       |
+       v
+Flask Web App (templates + REST APIs)
+       |
+       +-- POST /ask  --------------------> Amazon Bedrock Knowledge Base
+       |                                        |
+       |                                        v
+       |                                   S3 CSV + ingested documents
+       |
+       +-- IT Portal APIs ----------------> S3 CSV (read/write)
+       |                                        |
+       |                                        +--> Bedrock start_ingestion_job (manual sync)
+       |
+       +-- Question analytics -------------> DynamoDB (QuestionStats table)
 ```
+
+**Bedrock Knowledge Base + S3 CSV flow**
+
+1. FAQ entries live in a CSV object in S3 (`KNOWLEDGE_BASE_CSV_S3_KEY`, default `it_support_faq_dataset.csv`).
+2. Bedrock ingests that object (and related documents) through a configured data source.
+3. Employee questions call Bedrock `retrieve_and_generate` against the indexed content.
+4. IT Portal Add/Edit/Delete operations update the CSV in S3 immediately.
+5. **Sync Knowledge Base** triggers a Bedrock ingestion job so employee answers reflect the latest CSV.
+
+**DynamoDB QuestionStats analytics**
+
+Each `/ask` request records normalized question text, usage count, fallback count, and timestamps in `QUESTION_STATS_TABLE`. This data powers the employee sidebar and the IT Portal Analytics tab. It does not store answers or user identity.
 
 ---
 
 ## Features
 
-- Modern enterprise web UI with question form, response panel, and suggested questions
+### Employee experience
+
+- Enterprise web UI with question form, response panel, and suggested questions
 - Sidebar dropdown: **Most Popular** or **Recently Asked** questions (top 10 from DynamoDB)
-- `POST /ask` API for asynchronous Q&A with JSON responses
-- Amazon Bedrock `retrieve_and_generate` integration via boto3
-- Input validation (required, trimmed, max 500 characters)
+- `POST /ask` API with JSON responses and server-side validation (required, trimmed, max 500 characters)
 - Secure error handling without exposing AWS internals to users
-- **Mock answer mode** (`USE_MOCK_ANSWER=true`) for UI and Docker testing without Bedrock
-- **Question analytics** in **Amazon DynamoDB** (`QUESTION_STATS_TABLE`) with `lastAskedAt` tracking
-- **IT Portal** (`/it-login`, `/it-portal`) — IT Operations analytics dashboard with column sorting and record management
-- Docker and Docker Compose for consistent deployment
-- Gunicorn WSGI server in production containers
+- **Mock answer mode** (`USE_MOCK_ANSWER=true`) for UI and deployment testing without Bedrock
+
+### Popular vs Recently Asked questions
+
+The employee sidebar includes a sort control above the question list:
+
+| View | Sort order | API |
+|------|------------|-----|
+| **Most Popular Questions** (default) | `count` descending | `GET /api/common-questions?sort=popular` |
+| **Recently Asked Questions** | `lastAskedAt` descending | `GET /api/common-questions?sort=recent` |
+
+The sidebar displays the top 10 questions for the selected view.
+
+### IT Portal
+
+The IT Portal is a password-protected workspace for IT Operations. Access it from the **IT Team** header link. Authentication uses a shared password (`IT_PORTAL_PASSWORD`) stored server-side in `.env` and validated through a Flask session. This approach is intentionally simple for demo and development use; it is not intended as enterprise-grade access control.
+
+| Route | Purpose |
+|-------|---------|
+| `/it-login` | Password sign-in |
+| `/it-portal` | Analytics and Knowledge Base management |
+| `POST /it-logout` | End IT Portal session |
+| `DELETE /it-portal/api/analytics/<questionId>` | Delete analytics record (DynamoDB only) |
+| `GET/POST/PUT/DELETE /it-portal/api/knowledge` | Knowledge Base CSV CRUD |
+| `GET /it-portal/api/knowledge/sync-status` | Current sync state |
+| `POST /it-portal/api/knowledge/sync` | Manually trigger Bedrock ingestion |
+
+#### Analytics tab
+
+- Displays question usage from DynamoDB (`QUESTION_STATS_TABLE`)
+- Columns include count, fallback count, last asked, and created timestamps
+- Interactive column sorting (default: **Count ↓**)
+- Delete requires confirmation and shows a success toast
+- **Analytics delete affects DynamoDB only** — it does not remove S3 files, CSV rows, Bedrock resources, or indexed Knowledge Base content
+
+#### Knowledge Base Management tab
+
+- Loads FAQ entries from the S3 CSV (`Bucket_Name_uploadAccount`)
+- Search, pagination, sort by Question or Category
+- Expandable answer previews
+- **Add**, **Edit**, and **Delete** entries through modal forms
+- Changes save to S3 immediately; Bedrock indexing is a separate manual step
+
+#### Manual Sync workflow
+
+Synchronization state is stored in a hidden DynamoDB system record (`questionId = SYSTEM#KB_SYNC_STATUS`, `entityType = SYSTEM`) in the same table as question analytics. This record is the single source of truth for global Knowledge Base sync status.
+
+| Step | Behavior |
+|------|----------|
+| Add / Edit / Delete | Updates CSV and uploads to S3 immediately |
+| After save | Sets `isSynced = false` on the system record |
+| **Sync Knowledge Base** | Calls Bedrock `start_ingestion_job` |
+| After sync request succeeds | Sets `isSynced = true` and records **Last Sync Requested** |
+
+Employees only receive updated answers after Bedrock ingestion completes. The portal UI reflects pending state from the system record (`isSynced = false`).
+
+#### Unsynced changes behavior
+
+When `isSynced = false`, the IT Portal:
+
+- Shows a pending synchronization banner on the Knowledge Base tab
+- Displays an informational toast when the portal loads
+- Prompts before switching away from the Knowledge Base tab, navigating home, or logging out
+
+**Leave-warning flow**
+
+| Action | Warning shown |
+|--------|----------------|
+| Switch tab, go home, or logout with pending changes | Custom in-app modal (Cancel / Leave Without Syncing / Sync and Leave) |
+| Browser refresh or tab close with pending changes | Browser-native `beforeunload` prompt |
+| Leave Without Syncing or Sync and Leave (home/logout) after modal confirmation | No second browser-native prompt — navigation proceeds once |
+
+In-app navigation uses the custom modal only. The browser-native warning is reserved for refresh and tab close when the user has not already confirmed through the modal.
+
+#### Analytics delete vs Knowledge delete
+
+| Action | Data affected | S3 / CSV | Bedrock sync required |
+|--------|---------------|----------|------------------------|
+| Delete analytics record | DynamoDB `QuestionStats` only | No | No |
+| Delete knowledge entry | CSV row in S3 | Yes (saved immediately) | Yes (until **Sync Knowledge Base** is run) |
+
+Wrong passwords show a generic error. AWS errors are logged server-side and never exposed to users.
 
 ---
 
@@ -63,25 +152,24 @@ Generated Answer returned to the user
 Smart-Employee-Assistant/
 ├── app.py                          # Flask application and Bedrock integration
 ├── aws_config.py                   # uploadAccount active AWS configuration
-├── question_stats.py               # Popular-question tracking (DynamoDB)
+├── knowledge_base_service.py       # S3 CSV Knowledge Base CRUD and Bedrock sync
+├── question_stats.py               # Analytics tracking and KB sync system record
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .env.example
-├── .gitignore
-├── README.md
 ├── templates/
-│   ├── index.html                  # Employee home page and client-side UX
-│   ├── it_login.html               # IT Portal password login
-│   └── it_portal.html              # IT analytics dashboard
+│   ├── index.html                  # Employee home page
+│   ├── it_login.html               # IT Portal login
+│   └── it_portal.html              # IT Portal workspace
 ├── static/
-│   └── css/
-│       └── styles.css
-├── screenshots/                    # UI, AWS, and EC2 documentation images
-├── dataset/
-│   └── it_support_faq_dataset.csv  # IT Support FAQ dataset for Bedrock ingestion
-└── knowledge_base/
-    └── IT/                         # Source procedure documents
+│   ├── css/styles.css
+│   └── js/
+│       ├── portal-ui.js            # Modals and toasts
+│       └── it-portal.js            # IT Portal tab logic
+├── dataset/it_support_faq_dataset.csv
+├── knowledge_base/IT/              # Supporting procedure documents
+└── screenshots/                    # UI and deployment documentation
 ```
 
 ---
@@ -93,61 +181,29 @@ Copy `.env.example` to `.env` and configure:
 | Variable | Description |
 |----------|-------------|
 | `FLASK_ENV` | `development` or `production` |
-| `FLASK_SECRET_KEY` | Flask session signing key (use a long random value in production) |
+| `FLASK_SECRET_KEY` | Flask session signing key |
 | `AWS_ACCESS_KEY_ID` | AWS access key — **required at startup** |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key — **required at startup** |
 | `BEDROCK_MODEL_ARN` | Foundation model ARN for retrieve and generate — **required at startup** |
 | `USE_MOCK_ANSWER` | `true` to return mock answers without calling Bedrock |
-| `QUESTION_STATS_TABLE` | DynamoDB table name for Most Common Questions (partition key: `questionId`) — **required at startup** |
-| `AWS_REGION_uploadAccount` | Active AWS region for Bedrock, S3, and DynamoDB — **required at startup** |
+| `QUESTION_STATS_TABLE` | DynamoDB table for analytics and KB sync status — **required at startup** |
+| `AWS_REGION_uploadAccount` | Active AWS region — **required at startup** |
 | `Knowledge_Base_ID_uploadAccount` | Active Bedrock Knowledge Base ID — **required at startup** |
 | `Data_Source_ID_uploadAccount` | Active Bedrock data source ID — **required at startup** |
-| `Bucket_Name_uploadAccount` | Active S3 bucket for Knowledge Base documents — **required at startup** |
-| `IAM_Role_ARN_uploadAccount` | IAM role ARN used by the Knowledge Base / upload account — **required at startup** |
+| `Bucket_Name_uploadAccount` | S3 bucket for Knowledge Base documents — **required at startup** |
+| `IAM_Role_ARN_uploadAccount` | IAM role ARN for the Knowledge Base — **required at startup** |
+| `IT_PORTAL_PASSWORD` | Shared password for `/it-login` (server-side only) |
+| `KNOWLEDGE_BASE_CSV_S3_KEY` | Optional S3 key for the FAQ CSV (default: `it_support_faq_dataset.csv`) |
 | `AWS_REGION` | Legacy region (retained in `.env`; not used when uploadAccount values are set) |
 | `BEDROCK_KNOWLEDGE_BASE_ID` | Legacy Knowledge Base ID (retained in `.env`; not used when uploadAccount values are set) |
-| `IT_PORTAL_PASSWORD` | IT Portal sign-in password for `/it-login` (stored server-side; not exposed to the browser) |
 
-**Active AWS profile:** The application uses the **uploadAccount** variables above for Bedrock queries, S3/Knowledge Base context, and DynamoDB question analytics. Legacy `AWS_REGION` and `BEDROCK_KNOWLEDGE_BASE_ID` remain in `.env` for reference but are not read at runtime.
+**Active AWS profile:** The application uses **uploadAccount** variables for Bedrock, S3, and DynamoDB. Legacy `AWS_REGION` and `BEDROCK_KNOWLEDGE_BASE_ID` remain in `.env` for reference but are not read at runtime.
 
-**AWS authentication** is deterministic: credentials are loaded **only** from environment variables defined in `.env` (via `python-dotenv`). The application does **not** use `~/.aws/credentials`, AWS CLI profiles, or the default boto3 credential chain.
+**Authentication:** Credentials are loaded only from environment variables (via `python-dotenv`). The application does not use `~/.aws/credentials`, AWS CLI profiles, or the default boto3 credential chain.
 
-On startup, the app validates all required uploadAccount variables, credentials, `BEDROCK_MODEL_ARN`, and `QUESTION_STATS_TABLE`, then exits with a clear error if any are missing. Startup logs include the active region, Knowledge Base ID, data source ID, S3 bucket, DynamoDB table, and authentication source (never secrets).
+On startup, the app validates required uploadAccount variables, credentials, `BEDROCK_MODEL_ARN`, and `QUESTION_STATS_TABLE`, then exits with a clear error if any are missing. Never commit `.env` or hardcode credentials.
 
-Never commit `.env` or hardcode credentials in source code.
-
-### DynamoDB — Question analytics
-
-Each submitted question is normalized (trim, lowercase, collapse spaces) and stored in `QUESTION_STATS_TABLE` using the **uploadAccount** region and credentials. The partition key `questionId` is a SHA-256 hash of `normalizedQuestion`. Items include `questionText`, `normalizedQuestion`, `count`, `fallbackCount`, `entityType` (`QUESTION`), `createdAt`, `updatedAt`, and `lastAskedAt`.
-
-On every `/ask` request, `count` is incremented, `updatedAt` and `lastAskedAt` are set to the current UTC ISO timestamp, and `fallbackCount` is incremented only when the final answer is the KB fallback message. If the table is empty at startup, 10 common IT Support questions are seeded once with `count = 1`, `fallbackCount = 0`, and matching `createdAt`, `updatedAt`, and `lastAskedAt` timestamps (existing items are not duplicated). If DynamoDB is unavailable, the application continues to serve Q&A and returns an empty question list.
-
-**Employee sidebar — Popular vs Recent**
-
-The right-hand sidebar includes a dropdown above the question list:
-
-| View | Sort order |
-|------|------------|
-| **Most Popular Questions** (default) | `count` descending |
-| **Recently Asked Questions** | `lastAskedAt` descending |
-
-The sidebar shows the top 10 questions for the selected view. Changing the dropdown reloads the list from `GET /api/common-questions?sort=popular|recent`.
-
-**IT Portal — Analytics Dashboard**
-
-IT Operations staff can open the analytics dashboard from the **IT Team** link in the header (routes to `/it-login` or `/it-portal` depending on session state).
-
-| Route | Purpose |
-|-------|---------|
-| `/it-login` | Password-based sign-in using `IT_PORTAL_PASSWORD` from `.env` (Flask session) |
-| `/it-portal` | Full analytics table with interactive column sorting |
-| `POST /it-logout` | Clears IT Portal session |
-
-The portal defaults to **Count ↓** (highest usage first). Click any sortable column header to sort descending; click again to reverse. Sortable columns: Question, Count, Fallback Count, Last Asked, and Created At. Wrong passwords show a generic error; AWS errors are logged server-side and never exposed to users.
-
-**Delete analytics (Knowledge Management)**
-
-From `/it-portal`, IT Operations staff can remove individual question analytics records after confirmation. Delete removes only the DynamoDB `QuestionStats` item — it does **not** delete S3 objects, CSV source data, Bedrock resources, or Knowledge Base content.
+### DynamoDB table setup
 
 Create the table in the same region as `AWS_REGION_uploadAccount`:
 
@@ -157,7 +213,13 @@ Create the table in the same region as `AWS_REGION_uploadAccount`:
 | Partition key | `questionId` (String) |
 | Billing | On-demand recommended for demo workloads |
 
-The IAM principal needs `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:GetItem`, `dynamodb:Scan`, and `dynamodb:DeleteItem` on the table.
+**Question analytics items** use `entityType = QUESTION`. The partition key `questionId` is a SHA-256 hash of the normalized question text. Items include `questionText`, `count`, `fallbackCount`, `createdAt`, `updatedAt`, and `lastAskedAt`.
+
+**KB sync status** uses a hidden system item: `questionId = SYSTEM#KB_SYNC_STATUS`, `entityType = SYSTEM`, with `isSynced`, `lastSyncRequestedAt`, and `updatedAt`.
+
+On every `/ask` request, `count` is incremented and `lastAskedAt` is updated. `fallbackCount` increments only when the answer is the standard KB fallback message. If the table is empty at startup, 10 common IT Support questions are seeded once. If DynamoDB is unavailable, Q&A continues and the sidebar returns an empty list.
+
+**IAM permissions:** The principal needs `dynamodb:PutItem`, `UpdateItem`, `GetItem`, `Scan`, and `DeleteItem` on the table; `s3:GetObject` and `s3:PutObject` on the Knowledge Base bucket; and `bedrock:StartIngestionJob` on the active data source.
 
 ---
 
@@ -166,27 +228,22 @@ The IAM principal needs `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:Get
 ### Prerequisites
 
 - Python 3.11+
-- A `.env` file with all required AWS and Bedrock variables (see `.env.example`)
-- IAM user or role keys with Bedrock Knowledge Base access (mock mode still requires env vars to be set)
+- A `.env` file with all required variables (see `.env.example`)
+- IAM credentials with Bedrock Knowledge Base access (mock mode still requires env vars to be set)
 
 ### Steps
 
 ```bash
-# Clone and enter the project
 cd Smart-Employee-Assistant
 
-# Create virtual environment
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
 cp .env.example .env
 # Edit .env — set USE_MOCK_ANSWER=true for testing without Bedrock
 
-# Run the application
 python app.py
 ```
 
@@ -222,21 +279,20 @@ docker compose down
 ## Deploy on Amazon EC2 (overview)
 
 1. Launch an EC2 instance (Amazon Linux 2023 or Ubuntu 22.04) in the same region as your Bedrock Knowledge Base.
-2. Configure AWS credentials and Bedrock settings using environment variables.
-3. Install Docker and Docker Compose, clone this repository, and configure `.env` with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and Bedrock settings.
-4. Set `USE_MOCK_ANSWER=false` for live Knowledge Base queries.
-5. Run `docker compose up -d` and place an Application Load Balancer or reverse proxy (nginx) in front with TLS.
-6. Restrict security groups to corporate network or VPN CIDR ranges.
+2. Install Docker and Docker Compose, clone this repository, and configure `.env`.
+3. Set `USE_MOCK_ANSWER=false` for live Knowledge Base queries.
+4. Run `docker compose up -d` and place a load balancer or reverse proxy (nginx) in front with TLS.
+5. Restrict security groups to corporate network or VPN CIDR ranges.
 
 On EC2, inject the same variables into `.env` or the container environment. This application does not read instance metadata or `~/.aws/credentials` automatically.
 
-Do not expose the instance directly to the public internet without authentication and TLS.
+Do not expose the instance directly to the public internet without appropriate network controls and TLS.
 
 ---
 
-## Public Deployment
+## Public deployment (test instance)
 
-The application was successfully tested on:
+The application was successfully tested at:
 
 http://3.239.124.41:5000
 
@@ -252,7 +308,7 @@ Set `USE_MOCK_ANSWER=true` in `.env` when:
 - You are testing the UI, Docker image, or deployment pipeline
 - AWS credentials are unavailable on your machine
 
-Mock responses use keyword matching against common IT Support topics and reference Amdocs Demo procedures. Set `USE_MOCK_ANSWER=false` for live Bedrock answers.
+Mock responses use keyword matching against common IT Support topics. Set `USE_MOCK_ANSWER=false` for live Bedrock answers.
 
 ---
 
@@ -365,7 +421,7 @@ When the Knowledge Base does not contain a relevant match, the application retur
 
 ---
 
-## Resources Cleanup
+## Resources cleanup
 
 After testing and documentation were completed:
 
@@ -374,11 +430,7 @@ After testing and documentation were completed:
 - Bedrock Knowledge Base remained available for future testing.
 - No additional AWS resources were left running unintentionally.
 
----
-
-## AWS resource cleanup
-
-When decommissioning the environment, remove or archive resources in this order to avoid orphaned charges:
+When decommissioning the environment, remove or archive resources in this order:
 
 1. Bedrock Knowledge Base data source sync jobs
 2. Bedrock Knowledge Base and associated data source
@@ -394,10 +446,11 @@ Document your actual resource IDs in your team runbook before deletion.
 ## Security notes
 
 - Rotate `FLASK_SECRET_KEY` per environment.
-- Use IAM least privilege for Bedrock and S3 access; scope keys to Bedrock Knowledge Base actions only.
+- Use IAM least privilege for Bedrock and S3 access.
 - Rotate `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` on a regular schedule.
 - Keep `FLASK_ENV=production` in deployed environments.
 - User input is validated server-side; responses are rendered with `textContent` on the client to prevent XSS.
+- IT Portal access uses a shared password suitable for demo use. For production deployments, replace this with your organization's standard authentication mechanism.
 
 ---
 

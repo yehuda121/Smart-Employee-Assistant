@@ -11,21 +11,31 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any
+from functools import wraps
+from typing import Any, Callable
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from aws_config import log_upload_account_configuration, validate_upload_account_config
+from knowledge_base_service import (
+    add_entry as kb_add_entry,
+    delete_entry as kb_delete_entry,
+    list_entries as kb_list_entries,
+    sync_knowledge_base as kb_sync_knowledge_base,
+    update_entry as kb_update_entry,
+)
 from question_stats import (
     SORT_POPULAR,
     SORT_RECENT,
     delete_question,
+    get_kb_sync_status,
     get_questions,
     get_top_questions,
     record_question,
     seed_questions_if_empty,
+    set_kb_sync_completed,
 )
 
 logging.basicConfig(
@@ -321,6 +331,18 @@ def _is_it_portal_authenticated() -> bool:
     return bool(session.get("it_portal_authenticated"))
 
 
+def require_it_portal(view: Callable) -> Callable:
+    """Require an authenticated IT Portal session for API routes."""
+
+    @wraps(view)
+    def wrapped(*args: Any, **kwargs: Any):
+        if not _is_it_portal_authenticated():
+            return jsonify({"success": False, "error": "Unauthorized"}), 401
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 def _verify_it_portal_password(password: str) -> bool:
     expected = os.getenv("IT_PORTAL_PASSWORD", "").strip()
     if not expected:
@@ -357,6 +379,51 @@ def _enrich_portal_questions(questions: list[dict[str, Any]]) -> list[dict[str, 
             "createdAtDisplay": format_display_timestamp(row.get("createdAt")),
         })
     return enriched
+
+
+def _coerce_sync_bool(value: Any, default: bool = True) -> bool:
+    """Normalize sync status booleans from DynamoDB or request payloads."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes"):
+            return True
+        if normalized in ("false", "0", "no"):
+            return False
+        return default
+    if value is None:
+        return default
+    return bool(value)
+
+
+def _format_sync_status_payload(status_data: dict[str, Any] | None) -> dict[str, Any]:
+    status_data = status_data or {}
+    last_sync = status_data.get("lastSyncRequestedAt")
+    return {
+        "isSynced": _coerce_sync_bool(status_data.get("isSynced"), default=True),
+        "lastSyncRequestedAt": last_sync,
+        "lastSyncRequestedDisplay": (
+            format_display_timestamp(last_sync) if last_sync else "Not available"
+        ),
+    }
+
+
+def _sync_status_api_payload(sync_status: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    """Return sync status fields at the top level and in syncStatus."""
+    payload = {
+        "isSynced": sync_status["isSynced"],
+        "lastSyncRequestedAt": sync_status["lastSyncRequestedAt"],
+        "lastSyncRequestedDisplay": sync_status["lastSyncRequestedDisplay"],
+        "syncStatus": sync_status,
+    }
+    payload.update(extra)
+    return payload
+
+
+def _load_sync_status_response() -> tuple[dict[str, Any], bool]:
+    status_data, success = get_kb_sync_status()
+    return _format_sync_status_payload(status_data), success
 
 
 def get_answer(question: str) -> str:
@@ -415,33 +482,175 @@ def it_logout():
 
 @app.route("/it-portal", methods=["GET"])
 def it_portal():
-    """IT analytics dashboard for question usage in DynamoDB."""
+    """IT Portal workspace for analytics and Knowledge Base management."""
     if not _is_it_portal_authenticated():
         return redirect(url_for("it_login"))
 
     questions, success = get_questions(sort_by=None)
     error_message = None if success else "Unable to load question analytics at this time. Please try again later."
+    initial_sync_status, _sync_ok = _load_sync_status_response()
 
     return render_template(
         "it_portal.html",
         questions=_enrich_portal_questions(questions),
-        error_message=error_message,
+        analytics_error=error_message,
+        initial_sync_status=initial_sync_status,
         home_url=url_for("index"),
         logout_url=url_for("it_logout"),
-        delete_url_template=url_for("it_portal_delete", question_id="__ID__"),
+        analytics_delete_url_template=url_for("it_portal_delete_analytics", question_id="__ID__"),
+        knowledge_list_url=url_for("it_portal_list_knowledge"),
+        knowledge_sync_url=url_for("it_portal_sync_knowledge"),
+        knowledge_sync_status_url=url_for("it_portal_sync_status"),
+        knowledge_update_url_template=url_for("it_portal_update_knowledge", entry_id="__ID__"),
+        knowledge_delete_url_template=url_for("it_portal_delete_knowledge", entry_id="__ID__"),
     )
 
 
-@app.route("/it-portal/delete/<question_id>", methods=["POST"])
-def it_portal_delete(question_id: str):
+@app.route("/it-portal/api/analytics/<question_id>", methods=["DELETE"])
+@require_it_portal
+def it_portal_delete_analytics(question_id: str):
     """Delete a single analytics record from DynamoDB (does not affect the Knowledge Base)."""
-    if not _is_it_portal_authenticated():
-        return redirect(url_for("it_login"))
-
     if not delete_question(question_id):
-        logger.error("IT Portal delete failed for questionId=%s", question_id)
+        logger.error("IT Portal analytics delete failed for questionId=%s", question_id)
+        return jsonify({"success": False, "error": "Unable to delete record."}), 500
 
-    return redirect(url_for("it_portal"))
+    return jsonify({
+        "success": True,
+        "message": "Analytics record deleted successfully.",
+    })
+
+
+@app.route("/it-portal/api/knowledge", methods=["GET"])
+@require_it_portal
+def it_portal_list_knowledge():
+    """Return all Knowledge Base entries from the S3 CSV source."""
+    result = kb_list_entries()
+    if not result.success:
+        return jsonify({"success": False, "error": result.error or "Unable to load Knowledge Base entries."}), 500
+
+    sync_status, sync_ok = _load_sync_status_response()
+    if not sync_ok:
+        return jsonify({"success": False, "error": "Unable to load synchronization status."}), 500
+
+    return jsonify({
+        "success": True,
+        "entries": result.data,
+        "syncStatus": sync_status,
+    })
+
+
+@app.route("/it-portal/api/knowledge/sync-status", methods=["GET"])
+@require_it_portal
+def it_portal_sync_status():
+    """Return the current Knowledge Base synchronization state."""
+    sync_status, sync_ok = _load_sync_status_response()
+    if not sync_ok:
+        return jsonify({"success": False, "error": "Unable to load synchronization status."}), 500
+
+    return jsonify(_sync_status_api_payload(sync_status, success=True))
+
+
+@app.route("/it-portal/api/knowledge/sync", methods=["POST"])
+@require_it_portal
+def it_portal_sync_knowledge():
+    """Manually trigger Bedrock Knowledge Base synchronization."""
+    sync_result = kb_sync_knowledge_base()
+    if not sync_result.success:
+        return jsonify({
+            "success": False,
+            "error": sync_result.error or "Synchronization failed.",
+        }), 500
+
+    if not set_kb_sync_completed():
+        logger.error("Bedrock sync started but failed to update Knowledge Base sync status.")
+        return jsonify({
+            "success": False,
+            "error": "Synchronization started but status could not be updated.",
+        }), 500
+
+    sync_status, _sync_ok = _load_sync_status_response()
+    return jsonify(_sync_status_api_payload(
+        sync_status,
+        success=True,
+        message="Knowledge Base synchronization started successfully.",
+    ))
+
+
+@app.route("/it-portal/api/knowledge", methods=["POST"])
+@require_it_portal
+def it_portal_create_knowledge():
+    """Create a Knowledge Base entry and mark pending synchronization."""
+    payload = request.get_json(silent=True) or {}
+    result = kb_add_entry(
+        question=str(payload.get("question", "")),
+        answer=str(payload.get("answer", "")),
+        category=str(payload.get("category", "")),
+        keywords=str(payload.get("keywords", "")),
+    )
+
+    if not result.success:
+        status = 409 if result.error and "already exists" in result.error.lower() else 400
+        return jsonify({"success": False, "error": result.error or "Unable to create knowledge entry."}), status
+
+    status_result, status_ok = _load_sync_status_response()
+    sync_payload = status_result if status_ok else {"isSynced": False}
+
+    return jsonify({
+        "success": True,
+        "message": result.message,
+        "entry": result.data,
+        "syncStatus": sync_payload,
+    })
+
+
+@app.route("/it-portal/api/knowledge/<entry_id>", methods=["PUT"])
+@require_it_portal
+def it_portal_update_knowledge(entry_id: str):
+    """Update a Knowledge Base entry and mark pending synchronization."""
+    payload = request.get_json(silent=True) or {}
+    result = kb_update_entry(
+        entry_id=entry_id,
+        question=str(payload.get("question", "")),
+        answer=str(payload.get("answer", "")),
+        category=str(payload.get("category", "")),
+        keywords=str(payload.get("keywords", "")),
+    )
+
+    if not result.success:
+        status = 404 if result.error and "not found" in result.error.lower() else 400
+        if result.error and "already exists" in result.error.lower():
+            status = 409
+        return jsonify({"success": False, "error": result.error or "Unable to update knowledge entry."}), status
+
+    status_result, status_ok = _load_sync_status_response()
+    sync_payload = status_result if status_ok else {"isSynced": False}
+
+    return jsonify({
+        "success": True,
+        "message": result.message,
+        "entry": result.data,
+        "syncStatus": sync_payload,
+    })
+
+
+@app.route("/it-portal/api/knowledge/<entry_id>", methods=["DELETE"])
+@require_it_portal
+def it_portal_delete_knowledge(entry_id: str):
+    """Delete a Knowledge Base entry and mark pending synchronization."""
+    result = kb_delete_entry(entry_id)
+
+    if not result.success:
+        status = 404 if result.error and "not found" in result.error.lower() else 500
+        return jsonify({"success": False, "error": result.error or "Unable to delete knowledge entry."}), status
+
+    status_result, status_ok = _load_sync_status_response()
+    sync_payload = status_result if status_ok else {"isSynced": False}
+
+    return jsonify({
+        "success": True,
+        "message": result.message,
+        "syncStatus": sync_payload,
+    })
 
 
 @app.route("/ask", methods=["POST"])
