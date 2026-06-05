@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="IT Portal — question analytics for Smart Employee Assistant">
-  <title>IT Portal | Question Analytics</title>
+  <meta name="description" content="IT Portal Analytics Dashboard — Smart Employee Assistant">
+  <title>Analytics Dashboard | IT Portal</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,11 +26,11 @@
         <div class="brand-text">
           <p class="brand-eyebrow">IT Operations</p>
           <h1 class="brand-title">IT Portal</h1>
-          <p class="brand-subtitle">Question analytics dashboard</p>
+          <p class="brand-subtitle">Analytics Dashboard</p>
         </div>
       </div>
       <nav class="header-meta" aria-label="Navigation">
-        <a href="{{ home_url }}" class="header-portal-link">Employee Portal</a>
+        <a href="{{ home_url }}" class="header-portal-link">Smart Employee Assistant</a>
         <span class="meta-divider" aria-hidden="true"></span>
         <form method="post" action="{{ logout_url }}" class="portal-logout-form">
           <button type="submit" class="header-portal-link header-portal-link--button">Sign out</button>
@@ -43,10 +43,10 @@
     <div class="container page-intro">
       <p class="page-context">
         <span class="page-context-label">Workspace</span>
-        Question Analytics
+        Knowledge Management
       </p>
       <p class="page-lead">
-        Review usage metrics for employee questions tracked in DynamoDB. Deleting an analytics record does not remove content from the Knowledge Base, S3, or source documents.
+        Review employee question usage metrics across the Smart Employee Assistant platform. Removing an analytics record does not affect Knowledge Base content, source documents, or indexed data.
       </p>
     </div>
 
@@ -59,73 +59,253 @@
             </svg>
           </div>
           <div class="panel-header-text portal-table-header-text">
-            <h2 id="analytics-heading" class="panel-title">All tracked questions</h2>
+            <h2 id="analytics-heading" class="panel-title">Question analytics</h2>
             <p class="panel-description">
-              Sort and manage analytics entries stored in the QuestionStats DynamoDB table.
+              Select a column header to sort tracked employee questions. Click again to reverse the sort order.
             </p>
           </div>
-          <form class="portal-sort-form" method="get" action="{{ url_for('it_portal') }}">
-            <label for="portal-sort" class="widget-sort-label">Sort by</label>
-            <select id="portal-sort" name="sort" class="widget-sort-select portal-sort-select" onchange="this.form.submit()">
-              <option value="popular" {% if sort_by == 'popular' %}selected{% endif %}>Most Popular</option>
-              <option value="fallbacks" {% if sort_by == 'fallbacks' %}selected{% endif %}>Most Fallbacks</option>
-              <option value="recent" {% if sort_by == 'recent' %}selected{% endif %}>Recently Asked</option>
-            </select>
-          </form>
         </header>
 
         {% if error_message %}
         <div class="portal-alert portal-alert--error portal-table-alert" role="alert">{{ error_message }}</div>
-        {% endif %}
-
-        <div class="portal-table-wrap">
-          {% if questions %}
-          <table class="portal-table">
+        {% else %}
+        <div class="portal-table-wrap" id="portal-table-wrap" hidden>
+          <table class="portal-table" id="analytics-table" aria-describedby="analytics-heading">
             <thead>
               <tr>
-                <th scope="col">Question</th>
-                <th scope="col">Count</th>
-                <th scope="col">Fallback Count</th>
-                <th scope="col">Last Asked</th>
-                <th scope="col">Created At</th>
-                <th scope="col">Actions</th>
+                <th scope="col" class="portal-th-sortable" data-sort-field="question" aria-sort="none">
+                  <button type="button" class="portal-sort-btn" data-sort-field="question" aria-label="Sort by Question">
+                    <span class="portal-sort-label">Question</span>
+                    <span class="portal-sort-arrow" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th scope="col" class="portal-th-sortable" data-sort-field="count" aria-sort="descending">
+                  <button type="button" class="portal-sort-btn is-active" data-sort-field="count" aria-label="Sort by Count, descending">
+                    <span class="portal-sort-label">Count</span>
+                    <span class="portal-sort-arrow" aria-hidden="true">↓</span>
+                  </button>
+                </th>
+                <th scope="col" class="portal-th-sortable" data-sort-field="fallbackCount" aria-sort="none">
+                  <button type="button" class="portal-sort-btn" data-sort-field="fallbackCount" aria-label="Sort by Fallback Count">
+                    <span class="portal-sort-label">Fallback Count</span>
+                    <span class="portal-sort-arrow" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th scope="col" class="portal-th-sortable" data-sort-field="lastAskedAt" aria-sort="none">
+                  <button type="button" class="portal-sort-btn" data-sort-field="lastAskedAt" aria-label="Sort by Last Asked">
+                    <span class="portal-sort-label">Last Asked</span>
+                    <span class="portal-sort-arrow" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th scope="col" class="portal-th-sortable" data-sort-field="createdAt" aria-sort="none">
+                  <button type="button" class="portal-sort-btn" data-sort-field="createdAt" aria-label="Sort by Created At">
+                    <span class="portal-sort-label">Created At</span>
+                    <span class="portal-sort-arrow" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th scope="col" class="portal-th-actions">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {% for row in questions %}
-              <tr>
-                <td class="portal-table-question">{{ row.question }}</td>
-                <td class="portal-table-num">{{ row.count }}</td>
-                <td class="portal-table-num">{{ row.fallbackCount }}</td>
-                <td class="portal-table-date">{{ row.lastAskedAtDisplay }}</td>
-                <td class="portal-table-date">{{ row.createdAtDisplay }}</td>
-                <td class="portal-table-actions">
-                  <form
-                    method="post"
-                    action="{{ url_for('it_portal_delete', question_id=row.questionId) }}"
-                    class="portal-delete-form"
-                    onsubmit="return confirm('Delete this analytics record? This does not affect the Knowledge Base or source documents.');"
-                  >
-                    <input type="hidden" name="sort" value="{{ sort_by }}">
-                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-                  </form>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
+            <tbody id="analytics-tbody"></tbody>
           </table>
-          {% elif not error_message %}
-          <p class="portal-empty">No question analytics found.</p>
-          {% endif %}
         </div>
+        <p class="portal-empty" id="portal-empty" hidden>No question analytics are available.</p>
+        <script id="analytics-data" type="application/json">{{ questions | tojson }}</script>
+        <script>
+          window.IT_PORTAL_CONFIG = {
+            deleteUrlTemplate: {{ delete_url_template | tojson }}
+          };
+        </script>
+        {% endif %}
       </section>
     </div>
   </main>
 
   <footer class="site-footer" role="contentinfo">
     <div class="container footer-inner">
-      <p class="footer-text">Smart Employee Assistant &mdash; IT Portal analytics (DynamoDB only)</p>
+      <p class="footer-text">Smart Employee Assistant &mdash; IT Operations &middot; Knowledge Management</p>
     </div>
   </footer>
+
+  {% if not error_message %}
+  <script>
+    (function () {
+      var DEFAULT_SORT = { field: "count", direction: "desc" };
+
+      var dataEl = document.getElementById("analytics-data");
+      var tableWrap = document.getElementById("portal-table-wrap");
+      var emptyEl = document.getElementById("portal-empty");
+      var tbody = document.getElementById("analytics-tbody");
+      var sortButtons = document.querySelectorAll(".portal-sort-btn");
+      var deleteUrlTemplate = window.IT_PORTAL_CONFIG.deleteUrlTemplate;
+
+      var records = [];
+      try {
+        records = JSON.parse(dataEl.textContent || "[]");
+      } catch (err) {
+        records = [];
+      }
+
+      var activeSort = { field: DEFAULT_SORT.field, direction: DEFAULT_SORT.direction };
+
+      function compareValues(field, direction, left, right) {
+        var multiplier = direction === "desc" ? -1 : 1;
+
+        if (field === "question") {
+          var textA = (left.question || "").toLowerCase();
+          var textB = (right.question || "").toLowerCase();
+          return multiplier * textA.localeCompare(textB);
+        }
+
+        if (field === "count" || field === "fallbackCount") {
+          var numA = Number(left[field]) || 0;
+          var numB = Number(right[field]) || 0;
+          return multiplier * (numA - numB);
+        }
+
+        var dateA = left[field] || "";
+        var dateB = right[field] || "";
+        if (dateA === dateB) {
+          return 0;
+        }
+        if (!dateA) {
+          return 1;
+        }
+        if (!dateB) {
+          return -1;
+        }
+        return multiplier * (dateA < dateB ? -1 : 1);
+      }
+
+      function sortRecords(items, field, direction) {
+        return items.slice().sort(function (left, right) {
+          var result = compareValues(field, direction, left, right);
+          if (result !== 0) {
+            return result;
+          }
+          return (left.question || "").toLowerCase().localeCompare((right.question || "").toLowerCase());
+        });
+      }
+
+      function buildDeleteForm(questionId) {
+        var form = document.createElement("form");
+        form.method = "post";
+        form.className = "portal-delete-form";
+        form.action = deleteUrlTemplate.replace("__ID__", encodeURIComponent(questionId));
+        form.onsubmit = function () {
+          return confirm(
+            "Remove this analytics record from the dashboard? Knowledge Base content and source documents will not be affected."
+          );
+        };
+
+        var button = document.createElement("button");
+        button.type = "submit";
+        button.className = "btn btn-danger btn-sm";
+        button.textContent = "Delete";
+        form.appendChild(button);
+        return form;
+      }
+
+      function renderTable() {
+        var sorted = sortRecords(records, activeSort.field, activeSort.direction);
+        tbody.innerHTML = "";
+
+        sorted.forEach(function (row) {
+          var tr = document.createElement("tr");
+
+          var questionCell = document.createElement("td");
+          questionCell.className = "portal-table-question";
+          questionCell.textContent = row.question;
+          tr.appendChild(questionCell);
+
+          var countCell = document.createElement("td");
+          countCell.className = "portal-table-num";
+          countCell.textContent = String(row.count);
+          tr.appendChild(countCell);
+
+          var fallbackCell = document.createElement("td");
+          fallbackCell.className = "portal-table-num";
+          fallbackCell.textContent = String(row.fallbackCount);
+          tr.appendChild(fallbackCell);
+
+          var lastAskedCell = document.createElement("td");
+          lastAskedCell.className = "portal-table-date";
+          lastAskedCell.textContent = row.lastAskedAtDisplay || "—";
+          tr.appendChild(lastAskedCell);
+
+          var createdCell = document.createElement("td");
+          createdCell.className = "portal-table-date";
+          createdCell.textContent = row.createdAtDisplay || "—";
+          tr.appendChild(createdCell);
+
+          var actionsCell = document.createElement("td");
+          actionsCell.className = "portal-table-actions";
+          actionsCell.appendChild(buildDeleteForm(row.questionId));
+          tr.appendChild(actionsCell);
+
+          tbody.appendChild(tr);
+        });
+      }
+
+      function updateHeaderStates() {
+        sortButtons.forEach(function (button) {
+          var field = button.getAttribute("data-sort-field");
+          var th = button.closest("th");
+          var arrow = button.querySelector(".portal-sort-arrow");
+          var isActive = field === activeSort.field;
+
+          button.classList.toggle("is-active", isActive);
+          if (th) {
+            th.setAttribute("aria-sort", isActive ? activeSort.direction + "ending" : "none");
+          }
+
+          if (arrow) {
+            if (isActive) {
+              arrow.textContent = activeSort.direction === "desc" ? "↓" : "↑";
+              button.setAttribute(
+                "aria-label",
+                "Sort by " + button.querySelector(".portal-sort-label").textContent +
+                ", " + (activeSort.direction === "desc" ? "descending" : "ascending")
+              );
+            } else {
+              arrow.textContent = "";
+              button.setAttribute(
+                "aria-label",
+                "Sort by " + button.querySelector(".portal-sort-label").textContent
+              );
+            }
+          }
+        });
+      }
+
+      function handleSort(field) {
+        if (activeSort.field === field) {
+          activeSort.direction = activeSort.direction === "desc" ? "asc" : "desc";
+        } else {
+          activeSort.field = field;
+          activeSort.direction = "desc";
+        }
+        renderTable();
+        updateHeaderStates();
+      }
+
+      sortButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          handleSort(button.getAttribute("data-sort-field"));
+        });
+      });
+
+      if (records.length === 0) {
+        emptyEl.hidden = false;
+        tableWrap.hidden = true;
+      } else {
+        emptyEl.hidden = true;
+        tableWrap.hidden = false;
+        renderTable();
+        updateHeaderStates();
+      }
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

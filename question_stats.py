@@ -257,15 +257,17 @@ def record_question(question: str, *, is_fallback: bool = False) -> None:
 
 
 def get_questions(
-    sort_by: str = SORT_POPULAR,
+    sort_by: str | None = SORT_POPULAR,
     limit: int | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """
-    Return question analytics records sorted by the requested mode.
+    Return question analytics records, optionally sorted and limited for the sidebar.
+    When sort_by is None, records are returned unsorted for client-side portal sorting.
     Returns (records, success). success is False when DynamoDB is unavailable.
     """
-    if sort_by not in (SORT_POPULAR, SORT_RECENT, SORT_FALLBACKS):
-        sort_by = SORT_POPULAR
+    sidebar_sort = sort_by
+    if limit is not None and sidebar_sort not in (SORT_POPULAR, SORT_RECENT, SORT_FALLBACKS):
+        sidebar_sort = SORT_POPULAR
 
     try:
         seed_questions_if_empty()
@@ -278,14 +280,15 @@ def get_questions(
             if record:
                 records.append(record)
 
-        sorted_records = _sort_records(records, sort_by)
         if limit is not None:
+            sorted_records = _sort_records(records, sidebar_sort)
             sorted_records = sorted_records[:limit]
             return [
                 {"question": row["question"], "count": row["count"]}
                 for row in sorted_records
             ], True
-        return sorted_records, True
+
+        return records, True
 
     except (ClientError, BotoCoreError) as exc:
         logger.exception("Failed to load questions from DynamoDB: %s", exc)

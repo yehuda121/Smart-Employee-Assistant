@@ -51,7 +51,7 @@ Generated Answer returned to the user
 - Secure error handling without exposing AWS internals to users
 - **Mock answer mode** (`USE_MOCK_ANSWER=true`) for UI and Docker testing without Bedrock
 - **Question analytics** in **Amazon DynamoDB** (`QUESTION_STATS_TABLE`) with `lastAskedAt` tracking
-- **IT Portal** (`/it-login`, `/it-portal`) — password-protected analytics dashboard with sort and delete
+- **IT Portal** (`/it-login`, `/it-portal`) — IT Operations analytics dashboard with column sorting and record management
 - Docker and Docker Compose for consistent deployment
 - Gunicorn WSGI server in production containers
 
@@ -106,7 +106,7 @@ Copy `.env.example` to `.env` and configure:
 | `IAM_Role_ARN_uploadAccount` | IAM role ARN used by the Knowledge Base / upload account — **required at startup** |
 | `AWS_REGION` | Legacy region (retained in `.env`; not used when uploadAccount values are set) |
 | `BEDROCK_KNOWLEDGE_BASE_ID` | Legacy Knowledge Base ID (retained in `.env`; not used when uploadAccount values are set) |
-| `IT_PORTAL_PASSWORD` | Shared password for the demo IT Portal login at `/it-login` (not exposed to the browser) |
+| `IT_PORTAL_PASSWORD` | IT Portal sign-in password for `/it-login` (stored server-side; not exposed to the browser) |
 
 **Active AWS profile:** The application uses the **uploadAccount** variables above for Bedrock queries, S3/Knowledge Base context, and DynamoDB question analytics. Legacy `AWS_REGION` and `BEDROCK_KNOWLEDGE_BASE_ID` remain in `.env` for reference but are not read at runtime.
 
@@ -133,21 +133,21 @@ The right-hand sidebar includes a dropdown above the question list:
 
 The sidebar shows the top 10 questions for the selected view. Changing the dropdown reloads the list from `GET /api/common-questions?sort=popular|recent`.
 
-**IT Portal (demo login)**
+**IT Portal — Analytics Dashboard**
 
-IT staff can open the analytics dashboard from the **IT Team** link in the header (routes to `/it-login` or `/it-portal` depending on session state).
+IT Operations staff can open the analytics dashboard from the **IT Team** link in the header (routes to `/it-login` or `/it-portal` depending on session state).
 
 | Route | Purpose |
 |-------|---------|
-| `/it-login` | Password-only login using `IT_PORTAL_PASSWORD` from `.env` (stored in Flask session) |
-| `/it-portal` | Full analytics table with sort controls: Most Popular, Most Fallbacks, Recently Asked |
+| `/it-login` | Password-based sign-in using `IT_PORTAL_PASSWORD` from `.env` (Flask session) |
+| `/it-portal` | Full analytics table with interactive column sorting |
 | `POST /it-logout` | Clears IT Portal session |
 
-This is demo authentication only — not production-grade identity management. Wrong passwords show a generic error; AWS errors are logged server-side and never exposed to users.
+The portal defaults to **Count ↓** (highest usage first). Click any sortable column header to sort descending; click again to reverse. Sortable columns: Question, Count, Fallback Count, Last Asked, and Created At. Wrong passwords show a generic error; AWS errors are logged server-side and never exposed to users.
 
-**Delete analytics (DynamoDB only)**
+**Delete analytics (Knowledge Management)**
 
-From `/it-portal`, IT staff can delete individual question analytics records after confirmation. Delete removes only the DynamoDB `QuestionStats` item — it does **not** delete S3 objects, CSV source data, Bedrock resources, or Knowledge Base content.
+From `/it-portal`, IT Operations staff can remove individual question analytics records after confirmation. Delete removes only the DynamoDB `QuestionStats` item — it does **not** delete S3 objects, CSV source data, Bedrock resources, or Knowledge Base content.
 
 Create the table in the same region as `AWS_REGION_uploadAccount`:
 

@@ -888,7 +888,7 @@ body {
 
 .portal-table-header {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   gap: 1rem;
   align-items: start;
 }
@@ -897,17 +897,6 @@ body {
   background: rgba(47, 111, 237, 0.12);
   color: var(--blue-600);
   border: 1px solid rgba(47, 111, 237, 0.2);
-}
-
-.portal-sort-form {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
-.portal-sort-select {
-  min-width: 10rem;
 }
 
 .portal-table-alert {
@@ -940,6 +929,72 @@ body {
   text-transform: uppercase;
   color: var(--gray-600);
   background: var(--gray-50);
+}
+
+.portal-th-sortable {
+  padding: 0;
+}
+
+.portal-th-actions {
+  width: 6.5rem;
+}
+
+.portal-sort-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background var(--transition),
+    box-shadow var(--transition),
+    color var(--transition);
+}
+
+.portal-sort-btn:hover {
+  background: var(--gray-100);
+}
+
+.portal-sort-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--blue-500);
+}
+
+.portal-sort-btn.is-active {
+  background: rgba(47, 111, 237, 0.14);
+  color: var(--navy-800);
+  box-shadow:
+    inset 0 -2px 0 var(--blue-500),
+    0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.portal-sort-label {
+  min-width: 0;
+}
+
+.portal-sort-arrow {
+  flex-shrink: 0;
+  min-width: 1rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--blue-600);
+  text-align: center;
+}
+
+.portal-sort-btn.is-active .portal-sort-arrow {
+  color: var(--blue-700);
 }
 
 .portal-table tbody tr:hover {
@@ -1082,15 +1137,6 @@ body {
 
   .portal-table-header {
     grid-template-columns: 1fr;
-  }
-
-  .portal-sort-form {
-    width: 100%;
-  }
-
-  .portal-sort-select {
-    flex: 1;
-    min-width: 0;
   }
 
   .meta-label {

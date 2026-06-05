@@ -19,7 +19,6 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 
 from aws_config import log_upload_account_configuration, validate_upload_account_config
 from question_stats import (
-    SORT_FALLBACKS,
     SORT_POPULAR,
     SORT_RECENT,
     delete_question,
@@ -336,12 +335,6 @@ def _normalize_sidebar_sort(raw: str | None) -> str:
     return SORT_POPULAR
 
 
-def _normalize_portal_sort(raw: str | None) -> str:
-    if raw in (SORT_POPULAR, SORT_RECENT, SORT_FALLBACKS):
-        return raw
-    return SORT_POPULAR
-
-
 def format_display_timestamp(iso_value: str | None) -> str:
     """Format an ISO timestamp for display in the IT Portal."""
     if not iso_value:
@@ -394,7 +387,7 @@ def common_questions():
 
 @app.route("/it-login", methods=["GET", "POST"])
 def it_login():
-    """Password-only IT Portal login for demo use."""
+    """Password-based IT Portal sign-in."""
     if _is_it_portal_authenticated():
         return redirect(url_for("it_portal"))
 
@@ -426,17 +419,16 @@ def it_portal():
     if not _is_it_portal_authenticated():
         return redirect(url_for("it_login"))
 
-    sort_by = _normalize_portal_sort(request.args.get("sort"))
-    questions, success = get_questions(sort_by=sort_by)
+    questions, success = get_questions(sort_by=None)
     error_message = None if success else "Unable to load question analytics at this time. Please try again later."
 
     return render_template(
         "it_portal.html",
         questions=_enrich_portal_questions(questions),
-        sort_by=sort_by,
         error_message=error_message,
         home_url=url_for("index"),
         logout_url=url_for("it_logout"),
+        delete_url_template=url_for("it_portal_delete", question_id="__ID__"),
     )
 
 
@@ -446,11 +438,10 @@ def it_portal_delete(question_id: str):
     if not _is_it_portal_authenticated():
         return redirect(url_for("it_login"))
 
-    sort_by = _normalize_portal_sort(request.form.get("sort"))
     if not delete_question(question_id):
         logger.error("IT Portal delete failed for questionId=%s", question_id)
 
-    return redirect(url_for("it_portal", sort=sort_by))
+    return redirect(url_for("it_portal"))
 
 
 @app.route("/ask", methods=["POST"])
