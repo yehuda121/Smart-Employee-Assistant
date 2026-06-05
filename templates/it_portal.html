@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="IT Portal — question analytics for Smart Employee Assistant">
+  <title>IT Portal | Question Analytics</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <header class="site-header" role="banner">
+    <div class="header-accent" aria-hidden="true"></div>
+    <div class="container header-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 3L4 8v8l8 5 8-5V8l-8-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M12 12l8-5M12 12L4 7M12 12v9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <p class="brand-eyebrow">IT Operations</p>
+          <h1 class="brand-title">IT Portal</h1>
+          <p class="brand-subtitle">Question analytics dashboard</p>
+        </div>
+      </div>
+      <nav class="header-meta" aria-label="Navigation">
+        <a href="{{ home_url }}" class="header-portal-link">Employee Portal</a>
+        <span class="meta-divider" aria-hidden="true"></span>
+        <form method="post" action="{{ logout_url }}" class="portal-logout-form">
+          <button type="submit" class="header-portal-link header-portal-link--button">Sign out</button>
+        </form>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main-content" class="main-content">
+    <div class="container page-intro">
+      <p class="page-context">
+        <span class="page-context-label">Workspace</span>
+        Question Analytics
+      </p>
+      <p class="page-lead">
+        Review usage metrics for employee questions tracked in DynamoDB. Deleting an analytics record does not remove content from the Knowledge Base, S3, or source documents.
+      </p>
+    </div>
+
+    <div class="container portal-container">
+      <section class="workspace-card portal-table-card" aria-labelledby="analytics-heading">
+        <header class="panel-header panel-header--primary portal-table-header">
+          <div class="panel-icon panel-icon--analytics portal-table-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 20V10M10 20V4M16 20v-6M22 20H2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="panel-header-text portal-table-header-text">
+            <h2 id="analytics-heading" class="panel-title">All tracked questions</h2>
+            <p class="panel-description">
+              Sort and manage analytics entries stored in the QuestionStats DynamoDB table.
+            </p>
+          </div>
+          <form class="portal-sort-form" method="get" action="{{ url_for('it_portal') }}">
+            <label for="portal-sort" class="widget-sort-label">Sort by</label>
+            <select id="portal-sort" name="sort" class="widget-sort-select portal-sort-select" onchange="this.form.submit()">
+              <option value="popular" {% if sort_by == 'popular' %}selected{% endif %}>Most Popular</option>
+              <option value="fallbacks" {% if sort_by == 'fallbacks' %}selected{% endif %}>Most Fallbacks</option>
+              <option value="recent" {% if sort_by == 'recent' %}selected{% endif %}>Recently Asked</option>
+            </select>
+          </form>
+        </header>
+
+        {% if error_message %}
+        <div class="portal-alert portal-alert--error portal-table-alert" role="alert">{{ error_message }}</div>
+        {% endif %}
+
+        <div class="portal-table-wrap">
+          {% if questions %}
+          <table class="portal-table">
+            <thead>
+              <tr>
+                <th scope="col">Question</th>
+                <th scope="col">Count</th>
+                <th scope="col">Fallback Count</th>
+                <th scope="col">Last Asked</th>
+                <th scope="col">Created At</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in questions %}
+              <tr>
+                <td class="portal-table-question">{{ row.question }}</td>
+                <td class="portal-table-num">{{ row.count }}</td>
+                <td class="portal-table-num">{{ row.fallbackCount }}</td>
+                <td class="portal-table-date">{{ row.lastAskedAtDisplay }}</td>
+                <td class="portal-table-date">{{ row.createdAtDisplay }}</td>
+                <td class="portal-table-actions">
+                  <form
+                    method="post"
+                    action="{{ url_for('it_portal_delete', question_id=row.questionId) }}"
+                    class="portal-delete-form"
+                    onsubmit="return confirm('Delete this analytics record? This does not affect the Knowledge Base or source documents.');"
+                  >
+                    <input type="hidden" name="sort" value="{{ sort_by }}">
+                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% elif not error_message %}
+          <p class="portal-empty">No question analytics found.</p>
+          {% endif %}
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer" role="contentinfo">
+    <div class="container footer-inner">
+      <p class="footer-text">Smart Employee Assistant &mdash; IT Portal analytics (DynamoDB only)</p>
+    </div>
+  </footer>
+</body>
+</html>

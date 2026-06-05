@@ -30,6 +30,8 @@
         </div>
       </div>
       <nav class="header-meta" aria-label="Product information">
+        <a href="{{ it_portal_url }}" class="header-portal-link">IT Team</a>
+        <span class="meta-divider" aria-hidden="true"></span>
         <span class="meta-badge">
           <span class="meta-dot" aria-hidden="true"></span>
           Internal Use
@@ -139,6 +141,13 @@
           </p>
         </header>
         <div class="widget-body">
+          <div class="widget-sort">
+            <label for="questions-sort" class="widget-sort-label">View</label>
+            <select id="questions-sort" class="widget-sort-select" aria-label="Question list sort order">
+              <option value="popular" selected>Most Popular Questions</option>
+              <option value="recent">Recently Asked Questions</option>
+            </select>
+          </div>
           <ul id="common-questions-list" class="common-questions-list" role="list" aria-live="polite">
             <li class="common-empty">Loading common questions...</li>
           </ul>
@@ -169,6 +178,7 @@
       const responseBody = document.getElementById("response-body");
       const responseQuestion = document.getElementById("response-question");
       const commonList = document.getElementById("common-questions-list");
+      const questionsSort = document.getElementById("questions-sort");
       const btnText = submitBtn.querySelector(".btn-text");
       const btnSpinner = submitBtn.querySelector(".btn-spinner");
       const maxLength = 500;
@@ -241,11 +251,17 @@
         });
       }
 
+      function getCurrentSort() {
+        return questionsSort ? questionsSort.value : "popular";
+      }
+
       async function loadCommonQuestions() {
         try {
-          const response = await fetch("{{ url_for('common_questions') }}", {
-            headers: { "Accept": "application/json" }
-          });
+          const sort = getCurrentSort();
+          const response = await fetch(
+            "{{ url_for('common_questions') }}?sort=" + encodeURIComponent(sort),
+            { headers: { "Accept": "application/json" } }
+          );
           const data = await response.json();
           if (data.success) {
             renderCommonQuestions(data.questions);
@@ -268,7 +284,7 @@
               "Content-Type": "application/json",
               "Accept": "application/json"
             },
-            body: JSON.stringify({ question: question })
+            body: JSON.stringify({ question: question, sort: getCurrentSort() })
           });
 
           const data = await response.json();
@@ -277,9 +293,7 @@
             showResponse(data.question || question, data.answer, false);
             questionInput.value = "";
             updateCharCount();
-            if (data.common_questions) {
-              renderCommonQuestions(data.common_questions);
-            }
+            await loadCommonQuestions();
           } else {
             showResponse(question, data.error || "An unexpected error occurred.", true);
           }
@@ -295,6 +309,9 @@
       }
 
       questionInput.addEventListener("input", updateCharCount);
+      if (questionsSort) {
+        questionsSort.addEventListener("change", loadCommonQuestions);
+      }
       updateCharCount();
       loadCommonQuestions();
 

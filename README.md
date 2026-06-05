@@ -44,12 +44,14 @@ Generated Answer returned to the user
 ## Features
 
 - Modern enterprise web UI with question form, response panel, and suggested questions
+- Sidebar dropdown: **Most Popular** or **Recently Asked** questions (top 10 from DynamoDB)
 - `POST /ask` API for asynchronous Q&A with JSON responses
 - Amazon Bedrock `retrieve_and_generate` integration via boto3
 - Input validation (required, trimmed, max 500 characters)
 - Secure error handling without exposing AWS internals to users
 - **Mock answer mode** (`USE_MOCK_ANSWER=true`) for UI and Docker testing without Bedrock
-- **Most Common Questions** sidebar — top 10 by usage, persisted in **Amazon DynamoDB** (`QUESTION_STATS_TABLE`)
+- **Question analytics** in **Amazon DynamoDB** (`QUESTION_STATS_TABLE`) with `lastAskedAt` tracking
+- **IT Portal** (`/it-login`, `/it-portal`) — password-protected analytics dashboard with sort and delete
 - Docker and Docker Compose for consistent deployment
 - Gunicorn WSGI server in production containers
 
@@ -60,6 +62,7 @@ Generated Answer returned to the user
 ```
 Smart-Employee-Assistant/
 ├── app.py                          # Flask application and Bedrock integration
+├── aws_config.py                   # uploadAccount active AWS configuration
 ├── question_stats.py               # Popular-question tracking (DynamoDB)
 ├── requirements.txt
 ├── Dockerfile
@@ -68,7 +71,9 @@ Smart-Employee-Assistant/
 ├── .gitignore
 ├── README.md
 ├── templates/
-│   └── index.html                  # Home page and client-side UX
+│   ├── index.html                  # Employee home page and client-side UX
+│   ├── it_login.html               # IT Portal password login
+│   └── it_portal.html              # IT analytics dashboard
 ├── static/
 │   └── css/
 │       └── styles.css
@@ -89,33 +94,70 @@ Copy `.env.example` to `.env` and configure:
 |----------|-------------|
 | `FLASK_ENV` | `development` or `production` |
 | `FLASK_SECRET_KEY` | Flask session signing key (use a long random value in production) |
-| `AWS_REGION` | AWS region for Bedrock (e.g. `us-east-1`) — **required at startup** |
 | `AWS_ACCESS_KEY_ID` | AWS access key — **required at startup** |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key — **required at startup** |
-| `BEDROCK_KNOWLEDGE_BASE_ID` | Bedrock Knowledge Base ID — **required at startup** |
 | `BEDROCK_MODEL_ARN` | Foundation model ARN for retrieve and generate — **required at startup** |
 | `USE_MOCK_ANSWER` | `true` to return mock answers without calling Bedrock |
-| `QUESTION_STATS_TABLE` | DynamoDB table name for Most Common Questions (partition key: `questionId`) |
+| `QUESTION_STATS_TABLE` | DynamoDB table name for Most Common Questions (partition key: `questionId`) — **required at startup** |
+| `AWS_REGION_uploadAccount` | Active AWS region for Bedrock, S3, and DynamoDB — **required at startup** |
+| `Knowledge_Base_ID_uploadAccount` | Active Bedrock Knowledge Base ID — **required at startup** |
+| `Data_Source_ID_uploadAccount` | Active Bedrock data source ID — **required at startup** |
+| `Bucket_Name_uploadAccount` | Active S3 bucket for Knowledge Base documents — **required at startup** |
+| `IAM_Role_ARN_uploadAccount` | IAM role ARN used by the Knowledge Base / upload account — **required at startup** |
+| `AWS_REGION` | Legacy region (retained in `.env`; not used when uploadAccount values are set) |
+| `BEDROCK_KNOWLEDGE_BASE_ID` | Legacy Knowledge Base ID (retained in `.env`; not used when uploadAccount values are set) |
+| `IT_PORTAL_PASSWORD` | Shared password for the demo IT Portal login at `/it-login` (not exposed to the browser) |
+
+**Active AWS profile:** The application uses the **uploadAccount** variables above for Bedrock queries, S3/Knowledge Base context, and DynamoDB question analytics. Legacy `AWS_REGION` and `BEDROCK_KNOWLEDGE_BASE_ID` remain in `.env` for reference but are not read at runtime.
 
 **AWS authentication** is deterministic: credentials are loaded **only** from environment variables defined in `.env` (via `python-dotenv`). The application does **not** use `~/.aws/credentials`, AWS CLI profiles, or the default boto3 credential chain.
 
-On startup, the app validates that all five AWS/Bedrock variables above are set and exits with a clear error if any are missing. Startup logs include the AWS region, Knowledge Base ID, and authentication source (never secrets).
+On startup, the app validates all required uploadAccount variables, credentials, `BEDROCK_MODEL_ARN`, and `QUESTION_STATS_TABLE`, then exits with a clear error if any are missing. Startup logs include the active region, Knowledge Base ID, data source ID, S3 bucket, DynamoDB table, and authentication source (never secrets).
 
 Never commit `.env` or hardcode credentials in source code.
 
-### DynamoDB — Most Common Questions
+### DynamoDB — Question analytics
 
-Each submitted question is normalized and stored in the table named by `QUESTION_STATS_TABLE`. The partition key `questionId` is a stable SHA-256 hash of the normalized question text. Items include `questionText`, `normalizedQuestion`, `count`, `createdAt`, and `updatedAt`. The sidebar shows the top 10 questions by `count` (descending). If DynamoDB is unavailable, the application continues to serve Q&A and returns an empty popular-questions list.
+Each submitted question is normalized (trim, lowercase, collapse spaces) and stored in `QUESTION_STATS_TABLE` using the **uploadAccount** region and credentials. The partition key `questionId` is a SHA-256 hash of `normalizedQuestion`. Items include `questionText`, `normalizedQuestion`, `count`, `fallbackCount`, `entityType` (`QUESTION`), `createdAt`, `updatedAt`, and `lastAskedAt`.
 
-Create the table in the same region as `AWS_REGION`:
+On every `/ask` request, `count` is incremented, `updatedAt` and `lastAskedAt` are set to the current UTC ISO timestamp, and `fallbackCount` is incremented only when the final answer is the KB fallback message. If the table is empty at startup, 10 common IT Support questions are seeded once with `count = 1`, `fallbackCount = 0`, and matching `createdAt`, `updatedAt`, and `lastAskedAt` timestamps (existing items are not duplicated). If DynamoDB is unavailable, the application continues to serve Q&A and returns an empty question list.
+
+**Employee sidebar — Popular vs Recent**
+
+The right-hand sidebar includes a dropdown above the question list:
+
+| View | Sort order |
+|------|------------|
+| **Most Popular Questions** (default) | `count` descending |
+| **Recently Asked Questions** | `lastAskedAt` descending |
+
+The sidebar shows the top 10 questions for the selected view. Changing the dropdown reloads the list from `GET /api/common-questions?sort=popular|recent`.
+
+**IT Portal (demo login)**
+
+IT staff can open the analytics dashboard from the **IT Team** link in the header (routes to `/it-login` or `/it-portal` depending on session state).
+
+| Route | Purpose |
+|-------|---------|
+| `/it-login` | Password-only login using `IT_PORTAL_PASSWORD` from `.env` (stored in Flask session) |
+| `/it-portal` | Full analytics table with sort controls: Most Popular, Most Fallbacks, Recently Asked |
+| `POST /it-logout` | Clears IT Portal session |
+
+This is demo authentication only — not production-grade identity management. Wrong passwords show a generic error; AWS errors are logged server-side and never exposed to users.
+
+**Delete analytics (DynamoDB only)**
+
+From `/it-portal`, IT staff can delete individual question analytics records after confirmation. Delete removes only the DynamoDB `QuestionStats` item — it does **not** delete S3 objects, CSV source data, Bedrock resources, or Knowledge Base content.
+
+Create the table in the same region as `AWS_REGION_uploadAccount`:
 
 | Setting | Value |
 |---------|-------|
-| Table name | Value of `QUESTION_STATS_TABLE` (e.g. `smart-employee-question-stats`) |
+| Table name | Value of `QUESTION_STATS_TABLE` (e.g. `QuestionStats`) |
 | Partition key | `questionId` (String) |
 | Billing | On-demand recommended for demo workloads |
 
-The IAM principal needs `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:GetItem`, and `dynamodb:Scan` on the table.
+The IAM principal needs `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:GetItem`, `dynamodb:Scan`, and `dynamodb:DeleteItem` on the table.
 
 ---
 

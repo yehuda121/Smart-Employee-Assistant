@@ -11,7 +11,7 @@ RUN addgroup --system app && adduser --system --ingroup app app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py question_stats.py ./
+COPY app.py aws_config.py question_stats.py ./
 COPY templates/ templates/
 COPY static/ static/
 

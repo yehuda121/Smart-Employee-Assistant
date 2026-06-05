@@ -10,13 +10,24 @@ load_dotenv()
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
-from question_stats import get_top_questions, record_question
+from aws_config import log_upload_account_configuration, validate_upload_account_config
+from question_stats import (
+    SORT_FALLBACKS,
+    SORT_POPULAR,
+    SORT_RECENT,
+    delete_question,
+    get_questions,
+    get_top_questions,
+    record_question,
+    seed_questions_if_empty,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,16 +36,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MAX_QUESTION_LENGTH = 500
-
-AUTH_SOURCE = "environment variables (.env)"
-
-REQUIRED_ENV_VARS = (
-    "AWS_REGION",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY",
-    "BEDROCK_KNOWLEDGE_BASE_ID",
-    "BEDROCK_MODEL_ARN",
-)
 
 USER_ERROR_MESSAGE = (
     "We could not process your request at this time. "
@@ -83,43 +84,9 @@ _NO_KB_MATCH_PHRASES = (
 )
 
 
-def validate_required_env() -> dict[str, str]:
-    """
-    Validate that all required AWS and Bedrock variables are set in the environment.
-    Credentials must come from .env / process environment only (not ~/.aws/credentials).
-    """
-    missing: list[str] = []
-    config: dict[str, str] = {}
-
-    for name in REQUIRED_ENV_VARS:
-        value = os.getenv(name, "").strip()
-        if not value:
-            missing.append(name)
-        else:
-            config[name] = value
-
-    if missing:
-        message = (
-            "Startup failed: missing required environment variables: "
-            f"{', '.join(missing)}. "
-            "Define them in .env (see .env.example). "
-            "This application does not use ~/.aws/credentials or AWS CLI profiles."
-        )
-        logger.error(message)
-        raise SystemExit(message)
-
-    return config
-
-
-def log_aws_configuration(config: dict[str, str]) -> None:
-    """Log non-secret AWS configuration details at startup."""
-    logger.info("AWS region: %s", config["AWS_REGION"])
-    logger.info("Bedrock Knowledge Base ID: %s", config["BEDROCK_KNOWLEDGE_BASE_ID"])
-    logger.info("AWS authentication source: %s", AUTH_SOURCE)
-
-
-AWS_CONFIG = validate_required_env()
-log_aws_configuration(AWS_CONFIG)
+AWS_CONFIG = validate_upload_account_config()
+log_upload_account_configuration(AWS_CONFIG)
+seed_questions_if_empty()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "change-me-in-production")
@@ -143,7 +110,7 @@ def get_bedrock_client():
 
     _bedrock_client = boto3.client(
         "bedrock-agent-runtime",
-        region_name=AWS_CONFIG["AWS_REGION"],
+        region_name=AWS_CONFIG["ACTIVE_AWS_REGION"],
         aws_access_key_id=AWS_CONFIG["AWS_ACCESS_KEY_ID"],
         aws_secret_access_key=AWS_CONFIG["AWS_SECRET_ACCESS_KEY"],
     )
@@ -213,7 +180,7 @@ def query_knowledge_base(question: str) -> str:
             retrieveAndGenerateConfiguration={
                 "type": "KNOWLEDGE_BASE",
                 "knowledgeBaseConfiguration": {
-                    "knowledgeBaseId": AWS_CONFIG["BEDROCK_KNOWLEDGE_BASE_ID"],
+                    "knowledgeBaseId": AWS_CONFIG["ACTIVE_KNOWLEDGE_BASE_ID"],
                     "modelArn": AWS_CONFIG["BEDROCK_MODEL_ARN"],
                     "retrievalConfiguration": {
                         "vectorSearchConfiguration": {
@@ -339,6 +306,66 @@ def generate_mock_answer(question: str) -> str:
     )
 
 
+def is_fallback_answer(answer: str) -> bool:
+    """Return True when the answer is the standard knowledge-base not-found message."""
+    return answer.strip() == KB_NOT_FOUND_MESSAGE
+
+
+def _it_portal_url() -> str:
+    """Return the IT Portal or login URL based on session state."""
+    if session.get("it_portal_authenticated"):
+        return url_for("it_portal")
+    return url_for("it_login")
+
+
+def _is_it_portal_authenticated() -> bool:
+    return bool(session.get("it_portal_authenticated"))
+
+
+def _verify_it_portal_password(password: str) -> bool:
+    expected = os.getenv("IT_PORTAL_PASSWORD", "").strip()
+    if not expected:
+        logger.warning("IT_PORTAL_PASSWORD is not configured; IT Portal login is disabled.")
+        return False
+    return password == expected
+
+
+def _normalize_sidebar_sort(raw: str | None) -> str:
+    if raw == SORT_RECENT:
+        return SORT_RECENT
+    return SORT_POPULAR
+
+
+def _normalize_portal_sort(raw: str | None) -> str:
+    if raw in (SORT_POPULAR, SORT_RECENT, SORT_FALLBACKS):
+        return raw
+    return SORT_POPULAR
+
+
+def format_display_timestamp(iso_value: str | None) -> str:
+    """Format an ISO timestamp for display in the IT Portal."""
+    if not iso_value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(iso_value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except (ValueError, TypeError):
+        return str(iso_value)
+
+
+def _enrich_portal_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for row in questions:
+        enriched.append({
+            **row,
+            "lastAskedAtDisplay": format_display_timestamp(row.get("lastAskedAt")),
+            "createdAtDisplay": format_display_timestamp(row.get("createdAt")),
+        })
+    return enriched
+
+
 def get_answer(question: str) -> str:
     """Resolve an answer using mock mode or Amazon Bedrock Knowledge Base."""
     if _env_bool("USE_MOCK_ANSWER", default=False):
@@ -350,18 +377,80 @@ def get_answer(question: str) -> str:
 @app.route("/", methods=["GET"])
 def index():
     """Render the home page."""
-    return render_template("index.html")
+    return render_template("index.html", it_portal_url=_it_portal_url())
 
 
 @app.route("/api/common-questions", methods=["GET"])
 def common_questions():
-    """Return the top successful questions ranked by popularity."""
+    """Return the top sidebar questions for the selected sort mode."""
+    sort_mode = _normalize_sidebar_sort(request.args.get("sort"))
     try:
-        questions = get_top_questions()
-        return jsonify({"success": True, "questions": questions})
+        questions = get_top_questions(mode=sort_mode)
+        return jsonify({"success": True, "questions": questions, "sort": sort_mode})
     except Exception as exc:
         logger.exception("Failed to load common questions: %s", exc)
-        return jsonify({"success": True, "questions": []})
+        return jsonify({"success": True, "questions": [], "sort": sort_mode})
+
+
+@app.route("/it-login", methods=["GET", "POST"])
+def it_login():
+    """Password-only IT Portal login for demo use."""
+    if _is_it_portal_authenticated():
+        return redirect(url_for("it_portal"))
+
+    error_message = None
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if _verify_it_portal_password(password):
+            session["it_portal_authenticated"] = True
+            return redirect(url_for("it_portal"))
+        error_message = "Invalid password. Please try again."
+
+    return render_template(
+        "it_login.html",
+        error_message=error_message,
+        home_url=url_for("index"),
+    )
+
+
+@app.route("/it-logout", methods=["POST"])
+def it_logout():
+    """Clear IT Portal session and return to login."""
+    session.pop("it_portal_authenticated", None)
+    return redirect(url_for("it_login"))
+
+
+@app.route("/it-portal", methods=["GET"])
+def it_portal():
+    """IT analytics dashboard for question usage in DynamoDB."""
+    if not _is_it_portal_authenticated():
+        return redirect(url_for("it_login"))
+
+    sort_by = _normalize_portal_sort(request.args.get("sort"))
+    questions, success = get_questions(sort_by=sort_by)
+    error_message = None if success else "Unable to load question analytics at this time. Please try again later."
+
+    return render_template(
+        "it_portal.html",
+        questions=_enrich_portal_questions(questions),
+        sort_by=sort_by,
+        error_message=error_message,
+        home_url=url_for("index"),
+        logout_url=url_for("it_logout"),
+    )
+
+
+@app.route("/it-portal/delete/<question_id>", methods=["POST"])
+def it_portal_delete(question_id: str):
+    """Delete a single analytics record from DynamoDB (does not affect the Knowledge Base)."""
+    if not _is_it_portal_authenticated():
+        return redirect(url_for("it_login"))
+
+    sort_by = _normalize_portal_sort(request.form.get("sort"))
+    if not delete_question(question_id):
+        logger.error("IT Portal delete failed for questionId=%s", question_id)
+
+    return redirect(url_for("it_portal", sort=sort_by))
 
 
 @app.route("/ask", methods=["POST"])
@@ -378,14 +467,16 @@ def ask():
 
     try:
         answer = get_answer(question)
-        record_question(question)
-        common = get_top_questions()
+        record_question(question, is_fallback=is_fallback_answer(answer))
+        sort_mode = _normalize_sidebar_sort(payload.get("sort"))
+        common = get_top_questions(mode=sort_mode)
 
         return jsonify({
             "success": True,
             "answer": answer,
             "question": question,
             "common_questions": common,
+            "sort": sort_mode,
         })
     except ClientError as exc:
         logger.exception("AWS Bedrock client error: %s", exc.response.get("Error", {}).get("Code"))
