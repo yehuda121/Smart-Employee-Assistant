@@ -1,0 +1,62 @@
+{
+  "how do i request vpn access at amdocs?": {
+    "display": "How do I request VPN access at Amdocs?",
+    "count": 2,
+    "order": 0
+  },
+  "which vpn portal address should i use for the americas region?": {
+    "display": "Which VPN portal address should I use for the Americas region?",
+    "count": 0,
+    "order": 1
+  },
+  "where do i download the amdocs vpn client?": {
+    "display": "Where do I download the Amdocs VPN client?",
+    "count": 1,
+    "order": 2
+  },
+  "how long can i stay connected to the amdocs vpn?": {
+    "display": "How long can I stay connected to the Amdocs VPN?",
+    "count": 0,
+    "order": 3
+  },
+  "can i connect to vpn from multiple devices at the same time?": {
+    "display": "Can I connect to VPN from multiple devices at the same time?",
+    "count": 0,
+    "order": 4
+  },
+  "how do i report vpn connection failures?": {
+    "display": "How do I report VPN connection failures?",
+    "count": 0,
+    "order": 5
+  },
+  "does amdocs vpn use split tunneling?": {
+    "display": "Does Amdocs VPN use split tunneling?",
+    "count": 0,
+    "order": 6
+  },
+  "when does contractor vpn access expire?": {
+    "display": "When does contractor VPN access expire?",
+    "count": 0,
+    "order": 7
+  },
+  "how can i reset my corporate password at amdocs?": {
+    "display": "How can I reset my corporate password at Amdocs?",
+    "count": 0,
+    "order": 8
+  },
+  "what are the amdocs password requirements?": {
+    "display": "What are the Amdocs password requirements?",
+    "count": 0,
+    "order": 9
+  },
+  "how to reset a password?": {
+    "display": "how to reset a password?",
+    "count": 2,
+    "order": 10
+  },
+  "how do i request vpn access?": {
+    "display": "How do I request VPN access?",
+    "count": 1,
+    "order": 11
+  }
+}

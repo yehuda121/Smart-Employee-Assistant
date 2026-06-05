@@ -1,260 +1,156 @@
 """
-Persistent tracking of successful IT Support questions for the Most Common Questions panel.
-Stores only normalized keys, display text, usage counts, and insertion order — no answers or user data.
-
-The first 10 dataset FAQ items are seeded as placeholders (count 0). Any successful question
-can enter the top-10 list when its count exceeds others.
+Popular question tracking for the Most Common Questions panel using Amazon DynamoDB.
+Stores question text, normalized form, and usage counts — no answers or user data.
 """
 
-import csv
-import json
+import hashlib
 import logging
 import os
 import re
-from pathlib import Path
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
+
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
 
-STATS_DIR = Path(__file__).resolve().parent / "data"
-STATS_FILE = STATS_DIR / "question_stats.json"
-DATASET_FILE = Path(__file__).resolve().parent / "dataset" / "it_support_faq_dataset.csv"
 TOP_QUESTIONS_LIMIT = 10
 
-try:
-    import fcntl
-
-    _HAS_FCNTL = True
-except ImportError:
-    fcntl = None  # type: ignore[assignment,misc]
-    _HAS_FCNTL = False
+_dynamodb_table = None
 
 
 def normalize_question_key(question: str) -> str:
-    """Normalize question text for counting: trim, lowercase, collapse whitespace."""
-    collapsed = re.sub(r"\s+", " ", question.strip().lower())
-    return collapsed
+    """Normalize question text: trim, lowercase, collapse whitespace."""
+    return re.sub(r"\s+", " ", question.strip().lower())
 
 
-def _load_default_questions_from_dataset() -> list[dict[str, Any]]:
-    """Load the first 10 FAQ questions from the IT Support dataset as initial placeholders."""
-    defaults: list[dict[str, Any]] = []
-    if not DATASET_FILE.exists():
-        logger.error("Dataset file not found: %s", DATASET_FILE)
-        return defaults
-
-    with open(DATASET_FILE, newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for order, row in enumerate(reader):
-            if order >= TOP_QUESTIONS_LIMIT:
-                break
-            question = (row.get("question") or "").strip()
-            if not question:
-                continue
-            defaults.append(
-                {
-                    "id": (row.get("id") or f"IT-{order + 1:03d}").strip(),
-                    "question": question,
-                    "order": order,
-                }
-            )
-    return defaults
+def _question_id(normalized: str) -> str:
+    """Stable partition key from normalized question text."""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-DEFAULT_QUESTIONS: list[dict[str, Any]] = _load_default_questions_from_dataset()
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _ensure_stats_file() -> None:
-    """Create data directory and empty stats file if they do not exist."""
-    STATS_DIR.mkdir(parents=True, exist_ok=True)
-    if not STATS_FILE.exists():
-        STATS_FILE.write_text("{}", encoding="utf-8")
+def _get_table():
+    """Return the configured DynamoDB table, or None if not configured."""
+    global _dynamodb_table
+    if _dynamodb_table is not None:
+        return _dynamodb_table
 
+    table_name = os.getenv("QUESTION_STATS_TABLE", "").strip()
+    if not table_name:
+        logger.warning("QUESTION_STATS_TABLE is not set; popular questions are disabled.")
+        return None
 
-def _lock_file(handle) -> None:
-    if _HAS_FCNTL and fcntl is not None:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    region = os.getenv("AWS_REGION", "").strip()
+    access_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
+    if not region or not access_key or not secret_key:
+        logger.warning("AWS credentials incomplete; popular questions are disabled.")
+        return None
 
-
-def _unlock_file(handle) -> None:
-    if _HAS_FCNTL and fcntl is not None:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def _load_stats_unlocked(handle) -> dict[str, Any]:
-    handle.seek(0)
-    raw = handle.read()
-    if not raw.strip():
-        return {}
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.warning("Invalid question_stats.json; resetting store: %s", exc)
-        return {}
-    if not isinstance(data, dict):
-        logger.warning("question_stats.json root is not an object; resetting store.")
-        return {}
-    return data
-
-
-def _save_stats_unlocked(handle, stats: dict[str, Any]) -> None:
-    handle.seek(0)
-    handle.truncate(0)
-    json.dump(stats, handle, indent=2, ensure_ascii=False)
-    handle.write("\n")
-    handle.flush()
-    os.fsync(handle.fileno())
+    dynamodb = boto3.resource(
+        "dynamodb",
+        region_name=region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+    )
+    _dynamodb_table = dynamodb.Table(table_name)
+    return _dynamodb_table
 
 
 def _parse_count(value: Any) -> int:
+    if isinstance(value, Decimal):
+        return max(0, int(value))
     try:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 0
 
 
-def _parse_order(value: Any, fallback: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return fallback
-
-
-def _max_order(stats: dict[str, Any]) -> int:
-    maximum = -1
-    for entry in stats.values():
-        if isinstance(entry, dict) and "order" in entry:
-            maximum = max(maximum, _parse_order(entry.get("order"), 0))
-    return maximum
-
-
-def _merge_default_entries(stats: dict[str, Any]) -> dict[str, Any]:
+def record_question(question: str) -> None:
     """
-    Seed the 10 default FAQ questions with count 0 when missing.
-    Existing counts and custom questions are preserved.
+    Increment usage count for a submitted question in DynamoDB.
+    Creates a new item when the normalized question is seen for the first time.
     """
-    merged = dict(stats)
-
-    for item in DEFAULT_QUESTIONS:
-        question = item["question"]
-        key = normalize_question_key(question)
-        default_order = item["order"]
-        entry = merged.get(key)
-
-        if isinstance(entry, dict):
-            merged[key] = {
-                "display": question,
-                "count": _parse_count(entry.get("count")),
-                "order": _parse_order(entry.get("order"), default_order),
-            }
-        else:
-            merged[key] = {
-                "display": question,
-                "count": 0,
-                "order": default_order,
-            }
-
-    return merged
-
-
-def _normalize_all_entries(stats: dict[str, Any]) -> dict[str, Any]:
-    """Ensure every entry has display, count, and order fields."""
-    merged = _merge_default_entries(stats)
-    next_order = _max_order(merged) + 1
-    normalized: dict[str, Any] = {}
-
-    for key, entry in merged.items():
-        if not isinstance(entry, dict):
-            continue
-        display = entry.get("display")
-        if not isinstance(display, str) or not display.strip():
-            continue
-
-        order = entry.get("order")
-        if order is None:
-            order = next_order
-            next_order += 1
-
-        normalized[key] = {
-            "display": display.strip(),
-            "count": _parse_count(entry.get("count")),
-            "order": _parse_order(order, next_order),
-        }
-
-    return normalized
-
-
-def load_stats() -> dict[str, Any]:
-    """Load question statistics from disk, seeded with default FAQ placeholders."""
-    _ensure_stats_file()
-    with open(STATS_FILE, "r+", encoding="utf-8") as handle:
-        _lock_file(handle)
-        try:
-            stats = _load_stats_unlocked(handle)
-            merged = _normalize_all_entries(stats)
-            if merged != stats:
-                _save_stats_unlocked(handle, merged)
-            return merged
-        finally:
-            _unlock_file(handle)
-
-
-def record_successful_question(question: str) -> None:
-    """
-    Record a successful (non-fallback) question.
-    Increments count for known questions; adds new questions with count 1.
-    """
-    key = normalize_question_key(question)
-    if not key:
+    normalized = normalize_question_key(question)
+    if not normalized:
         return
 
+    table = _get_table()
+    if table is None:
+        return
+
+    question_id = _question_id(normalized)
     display = question.strip()
-    _ensure_stats_file()
+    now = _utc_now_iso()
 
-    with open(STATS_FILE, "r+", encoding="utf-8") as handle:
-        _lock_file(handle)
-        try:
-            stats = _normalize_all_entries(_load_stats_unlocked(handle))
-            entry = stats.get(key)
-
-            if isinstance(entry, dict):
-                entry["count"] = _parse_count(entry.get("count")) + 1
-                if not entry.get("display"):
-                    entry["display"] = display
-            else:
-                stats[key] = {
-                    "display": display,
-                    "count": 1,
-                    "order": _max_order(stats) + 1,
-                }
-
-            _save_stats_unlocked(handle, stats)
-        finally:
-            _unlock_file(handle)
+    try:
+        table.update_item(
+            Key={"questionId": question_id},
+            UpdateExpression=(
+                "ADD #count :inc "
+                "SET questionText = if_not_exists(questionText, :text), "
+                "normalizedQuestion = :normalized, "
+                "updatedAt = :updated, "
+                "createdAt = if_not_exists(createdAt, :created)"
+            ),
+            ExpressionAttributeNames={"#count": "count"},
+            ExpressionAttributeValues={
+                ":inc": 1,
+                ":text": display,
+                ":normalized": normalized,
+                ":updated": now,
+                ":created": now,
+            },
+        )
+    except (ClientError, BotoCoreError) as exc:
+        logger.exception("Failed to record question in DynamoDB: %s", exc)
+    except Exception as exc:
+        logger.exception("Unexpected error recording question stats: %s", exc)
 
 
 def get_top_questions(limit: int = TOP_QUESTIONS_LIMIT) -> list[dict[str, Any]]:
     """
-    Return the top questions by usage count across all tracked questions.
-    Sorted by count descending; ties preserve insertion order.
+    Return the top questions by usage count from DynamoDB.
+    Sorted by count descending. Returns an empty list on error or when no data exists.
     """
-    stats = load_stats()
-    items: list[dict[str, Any]] = []
+    table = _get_table()
+    if table is None:
+        return []
 
-    for entry in stats.values():
-        if not isinstance(entry, dict):
-            continue
-        display = entry.get("display")
-        if not isinstance(display, str) or not display.strip():
-            continue
+    try:
+        items: list[dict[str, Any]] = []
+        scan_kwargs: dict[str, Any] = {}
 
-        items.append(
-            {
-                "question": display.strip(),
-                "count": _parse_count(entry.get("count")),
-                "order": _parse_order(entry.get("order"), 0),
-            }
-        )
+        while True:
+            response = table.scan(**scan_kwargs)
+            items.extend(response.get("Items", []))
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last_key
 
-    items.sort(key=lambda row: (-row["count"], row["order"]))
-    return [{"question": row["question"], "count": row["count"]} for row in items[:limit]]
+        ranked: list[dict[str, Any]] = []
+        for item in items:
+            text = item.get("questionText")
+            if not isinstance(text, str) or not text.strip():
+                continue
+            count = _parse_count(item.get("count", 0))
+            if count < 1:
+                continue
+            ranked.append({"question": text.strip(), "count": count})
+
+        ranked.sort(key=lambda row: (-row["count"], row["question"].lower()))
+        return ranked[:limit]
+
+    except (ClientError, BotoCoreError) as exc:
+        logger.exception("Failed to load popular questions from DynamoDB: %s", exc)
+        return []
+    except Exception as exc:
+        logger.exception("Unexpected error loading popular questions: %s", exc)
+        return []

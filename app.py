@@ -16,7 +16,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from flask import Flask, jsonify, render_template, request
 
-from question_stats import get_top_questions, record_successful_question
+from question_stats import get_top_questions, record_question
 
 logging.basicConfig(
     level=logging.INFO,
@@ -339,11 +339,6 @@ def generate_mock_answer(question: str) -> str:
     )
 
 
-def is_fallback_answer(answer: str) -> bool:
-    """Return True when the answer is the standard knowledge-base not-found message."""
-    return answer.strip() == KB_NOT_FOUND_MESSAGE
-
-
 def get_answer(question: str) -> str:
     """Resolve an answer using mock mode or Amazon Bedrock Knowledge Base."""
     if _env_bool("USE_MOCK_ANSWER", default=False):
@@ -383,13 +378,8 @@ def ask():
 
     try:
         answer = get_answer(question)
+        record_question(question)
         common = get_top_questions()
-        if not is_fallback_answer(answer):
-            try:
-                record_successful_question(question)
-                common = get_top_questions()
-            except Exception as exc:
-                logger.exception("Failed to record question stats: %s", exc)
 
         return jsonify({
             "success": True,

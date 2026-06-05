@@ -15,7 +15,7 @@ COPY app.py question_stats.py ./
 COPY templates/ templates/
 COPY static/ static/
 
-RUN mkdir -p /app/data && chown -R app:app /app
+RUN chown -R app:app /app
 USER app
 
 EXPOSE 5000

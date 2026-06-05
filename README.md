@@ -49,7 +49,7 @@ Generated Answer returned to the user
 - Input validation (required, trimmed, max 500 characters)
 - Secure error handling without exposing AWS internals to users
 - **Mock answer mode** (`USE_MOCK_ANSWER=true`) for UI and Docker testing without Bedrock
-- **Most Common Questions** sidebar — top 10 by usage (defaults seeded at count 0; custom successful questions can rank in) (`data/question_stats.json`)
+- **Most Common Questions** sidebar — top 10 by usage, persisted in **Amazon DynamoDB** (`QUESTION_STATS_TABLE`)
 - Docker and Docker Compose for consistent deployment
 - Gunicorn WSGI server in production containers
 
@@ -60,9 +60,7 @@ Generated Answer returned to the user
 ```
 Smart-Employee-Assistant/
 ├── app.py                          # Flask application and Bedrock integration
-├── question_stats.py               # Popular-question tracking (JSON persistence)
-├── data/
-│   └── question_stats.json         # Runtime stats (gitignored; created automatically)
+├── question_stats.py               # Popular-question tracking (DynamoDB)
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
@@ -97,12 +95,27 @@ Copy `.env.example` to `.env` and configure:
 | `BEDROCK_KNOWLEDGE_BASE_ID` | Bedrock Knowledge Base ID — **required at startup** |
 | `BEDROCK_MODEL_ARN` | Foundation model ARN for retrieve and generate — **required at startup** |
 | `USE_MOCK_ANSWER` | `true` to return mock answers without calling Bedrock |
+| `QUESTION_STATS_TABLE` | DynamoDB table name for Most Common Questions (partition key: `questionId`) |
 
 **AWS authentication** is deterministic: credentials are loaded **only** from environment variables defined in `.env` (via `python-dotenv`). The application does **not** use `~/.aws/credentials`, AWS CLI profiles, or the default boto3 credential chain.
 
 On startup, the app validates that all five AWS/Bedrock variables above are set and exits with a clear error if any are missing. Startup logs include the AWS region, Knowledge Base ID, and authentication source (never secrets).
 
 Never commit `.env` or hardcode credentials in source code.
+
+### DynamoDB — Most Common Questions
+
+Each submitted question is normalized and stored in the table named by `QUESTION_STATS_TABLE`. The partition key `questionId` is a stable SHA-256 hash of the normalized question text. Items include `questionText`, `normalizedQuestion`, `count`, `createdAt`, and `updatedAt`. The sidebar shows the top 10 questions by `count` (descending). If DynamoDB is unavailable, the application continues to serve Q&A and returns an empty popular-questions list.
+
+Create the table in the same region as `AWS_REGION`:
+
+| Setting | Value |
+|---------|-------|
+| Table name | Value of `QUESTION_STATS_TABLE` (e.g. `smart-employee-question-stats`) |
+| Partition key | `questionId` (String) |
+| Billing | On-demand recommended for demo workloads |
+
+The IAM principal needs `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:GetItem`, and `dynamodb:Scan` on the table.
 
 ---
 

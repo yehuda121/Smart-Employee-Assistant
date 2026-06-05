@@ -1,5 +1,4 @@
 .env
-data/question_stats.json
 .venv/
 venv/
 env/

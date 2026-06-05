@@ -201,6 +201,15 @@
 
       function renderCommonQuestions(questions) {
         commonList.innerHTML = "";
+        const emptyMessage = "No common questions yet. Ask a question to get started.";
+
+        if (!questions || questions.length === 0) {
+          const emptyItem = document.createElement("li");
+          emptyItem.className = "common-empty";
+          emptyItem.textContent = emptyMessage;
+          commonList.appendChild(emptyItem);
+          return;
+        }
 
         (questions || []).forEach(function (item) {
           const li = document.createElement("li");
