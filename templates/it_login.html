@@ -54,6 +54,7 @@
         </header>
 
         <form class="ask-form portal-login-form" method="post" action="{{ url_for('it_login') }}" novalidate>
+          <div id="login-client-error" class="portal-alert portal-alert--error" role="alert" hidden></div>
           {% if error_message %}
           <div class="portal-alert portal-alert--error" role="alert">{{ error_message }}</div>
           {% endif %}
@@ -82,5 +83,30 @@
       <p class="footer-text">Smart Employee Assistant &mdash; IT Operations &middot; Knowledge Management</p>
     </div>
   </footer>
+
+  <script>
+    (function () {
+      var form = document.querySelector(".portal-login-form");
+      var passwordInput = document.getElementById("password");
+      var clientError = document.getElementById("login-client-error");
+
+      if (!form || !passwordInput || !clientError) {
+        return;
+      }
+
+      form.addEventListener("submit", function (event) {
+        if (passwordInput.value.trim()) {
+          clientError.hidden = true;
+          clientError.textContent = "";
+          return;
+        }
+
+        event.preventDefault();
+        clientError.textContent = "Please enter your password.";
+        clientError.hidden = false;
+        passwordInput.focus();
+      });
+    })();
+  </script>
 </body>
 </html>

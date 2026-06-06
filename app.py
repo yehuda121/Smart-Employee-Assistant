@@ -337,7 +337,10 @@ def require_it_portal(view: Callable) -> Callable:
     @wraps(view)
     def wrapped(*args: Any, **kwargs: Any):
         if not _is_it_portal_authenticated():
-            return jsonify({"success": False, "error": "Unauthorized"}), 401
+            return jsonify({
+                "success": False,
+                "error": "Your IT Portal session has expired. Please sign in again.",
+            }), 401
         return view(*args, **kwargs)
 
     return wrapped
@@ -432,6 +435,75 @@ def get_answer(question: str) -> str:
         logger.info("Returning mock answer (USE_MOCK_ANSWER=true).")
         return generate_mock_answer(question)
     return query_knowledge_base(question)
+
+
+def _wants_json_response() -> bool:
+    """Return True when the client expects a JSON error payload instead of HTML."""
+    if request.path.startswith("/it-portal/api/") or request.path.startswith("/api/"):
+        return True
+    if request.path == "/ask":
+        return True
+    accept = request.accept_mimetypes
+    return (
+        accept.best_match(["application/json", "text/html"]) == "application/json"
+        and accept["application/json"] > accept["text/html"]
+    )
+
+
+def _json_or_error_page(status_code: int, message: str, title: str):
+    """Return a styled HTML error page or JSON error payload based on the request."""
+    if _wants_json_response():
+        return jsonify({"success": False, "error": message}), status_code
+
+    return render_template(
+        "error.html",
+        status_code=status_code,
+        title=title,
+        message=message,
+        home_url=url_for("index"),
+        it_portal_url=_it_portal_url(),
+    ), status_code
+
+
+@app.errorhandler(404)
+def handle_not_found(error):
+    """Render a styled not-found page or JSON error for API clients."""
+    return _json_or_error_page(
+        404,
+        "The requested resource was not found.",
+        "Page not found",
+    )
+
+
+@app.errorhandler(405)
+def handle_method_not_allowed(error):
+    """Render a styled method-not-allowed page or JSON error for API clients."""
+    return _json_or_error_page(
+        405,
+        "This request method is not supported.",
+        "Method not allowed",
+    )
+
+
+@app.errorhandler(403)
+def handle_forbidden(error):
+    """Render a styled access-denied page or JSON error for API clients."""
+    return _json_or_error_page(
+        403,
+        "You do not have permission to access this resource.",
+        "Access denied",
+    )
+
+
+@app.errorhandler(500)
+def handle_internal_error(error):
+    """Render a styled server error page or JSON error for API clients."""
+    logger.exception("Unhandled server error: %s", error)
+    return _json_or_error_page(
+        500,
+        USER_ERROR_MESSAGE,
+        "Something went wrong",
+    )
 
 
 @app.route("/", methods=["GET"])

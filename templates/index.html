@@ -182,6 +182,16 @@
       const btnText = submitBtn.querySelector(".btn-text");
       const btnSpinner = submitBtn.querySelector(".btn-spinner");
       const maxLength = 500;
+      const GENERIC_ERROR_MESSAGE =
+        "We could not process your request at this time. Please try again later or contact the IT Service Desk.";
+
+      async function parseJsonResponse(response) {
+        try {
+          return await response.json();
+        } catch (err) {
+          return {};
+        }
+      }
 
       function updateCharCount() {
         const len = questionInput.value.length;
@@ -207,6 +217,14 @@
         responseBody.textContent = answer;
         responseBody.classList.toggle("response-error", isError);
         responseSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      function showCommonQuestionsError(message) {
+        commonList.innerHTML = "";
+        const emptyItem = document.createElement("li");
+        emptyItem.className = "common-empty common-empty--error";
+        emptyItem.textContent = message || "Unable to load common questions. Please refresh the page.";
+        commonList.appendChild(emptyItem);
       }
 
       function renderCommonQuestions(questions) {
@@ -262,14 +280,14 @@
             "{{ url_for('common_questions') }}?sort=" + encodeURIComponent(sort),
             { headers: { "Accept": "application/json" } }
           );
-          const data = await response.json();
-          if (data.success) {
+          const data = await parseJsonResponse(response);
+          if (response.ok && data.success) {
             renderCommonQuestions(data.questions);
           } else {
-            renderCommonQuestions([]);
+            showCommonQuestionsError();
           }
         } catch (err) {
-          renderCommonQuestions([]);
+          showCommonQuestionsError();
         }
       }
 
@@ -287,15 +305,15 @@
             body: JSON.stringify({ question: question, sort: getCurrentSort() })
           });
 
-          const data = await response.json();
+          const data = await parseJsonResponse(response);
 
-          if (data.success && data.answer) {
+          if (response.ok && data.success && data.answer) {
             showResponse(data.question || question, data.answer, false);
             questionInput.value = "";
             updateCharCount();
             await loadCommonQuestions();
           } else {
-            showResponse(question, data.error || "An unexpected error occurred.", true);
+            showResponse(question, data.error || GENERIC_ERROR_MESSAGE, true);
           }
         } catch (err) {
           showResponse(
@@ -319,7 +337,10 @@
         event.preventDefault();
         const question = questionInput.value.trim();
         if (!question) {
-          showResponse("", "Please enter a question.", true);
+          responseSection.hidden = false;
+          responseQuestion.textContent = "";
+          responseBody.textContent = "Please enter a question.";
+          responseBody.classList.add("response-error");
           questionInput.focus();
           return;
         }

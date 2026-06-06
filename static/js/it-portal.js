@@ -56,11 +56,30 @@
   }
 
   function fetchJson(url, options) {
-    return fetch(url, options).then(function (response) {
-      return response.json().then(function (data) {
-        return { ok: response.ok, status: response.status, data: data };
+    return fetch(url, options)
+      .then(function (response) {
+        return response
+          .json()
+          .catch(function () {
+            return {};
+          })
+          .then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          });
+      })
+      .catch(function () {
+        return { ok: false, status: 0, data: {} };
       });
-    });
+  }
+
+  function getApiErrorMessage(result, fallback) {
+    if (result.status === 401) {
+      return "Your IT Portal session has expired. Please sign in again.";
+    }
+    if (result.data && result.data.error) {
+      return result.data.error;
+    }
+    return fallback;
   }
 
   function applySyncStatus(status) {
@@ -153,7 +172,7 @@
           );
           return true;
         }
-        PortalUI.toastError(result.data.error || "Synchronization failed.");
+        PortalUI.toastError(getApiErrorMessage(result, "Synchronization failed."));
         return false;
       })
       .catch(function () {
@@ -402,7 +421,7 @@
             renderAnalyticsTable();
             PortalUI.toastSuccess(result.data.message || "Analytics record deleted successfully.");
           } else {
-            PortalUI.toastError(result.data.error || "Unable to delete record.");
+            PortalUI.toastError(getApiErrorMessage(result, "Unable to delete record."));
           }
         })
         .catch(function () {
@@ -592,7 +611,7 @@
           renderKnowledgeTable();
           updateSortHeaders("#knowledge-table", knowledgeSort);
         } else {
-          PortalUI.toastError(result.data.error || "Unable to load Knowledge Base entries.");
+          PortalUI.toastError(getApiErrorMessage(result, "Unable to load Knowledge Base entries."));
         }
       })
       .catch(function () {
@@ -641,7 +660,7 @@
             }
             loadKnowledgeEntries();
           } else {
-            PortalUI.toastError(result.data.error || "Unable to save knowledge entry.");
+            PortalUI.toastError(getApiErrorMessage(result, "Unable to save knowledge entry."));
           }
         })
         .catch(function () {
@@ -677,7 +696,7 @@
             }
             loadKnowledgeEntries();
           } else {
-            PortalUI.toastError(result.data.error || "Unable to delete knowledge entry.");
+            PortalUI.toastError(getApiErrorMessage(result, "Unable to delete knowledge entry."));
           }
         })
         .catch(function () {

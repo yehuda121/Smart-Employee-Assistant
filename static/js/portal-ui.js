@@ -88,6 +88,9 @@
   function confirm(options) {
     options = options || {};
     var root = getModalRoot();
+    if (!root) {
+      return Promise.resolve(false);
+    }
     var dialog = root.querySelector(".portal-modal-dialog");
     var titleEl = root.querySelector("#portal-modal-title");
     var messageEl = root.querySelector("#portal-modal-message");
@@ -151,6 +154,9 @@
   function showChoiceModal(options) {
     options = options || {};
     var root = getModalRoot();
+    if (!root) {
+      return Promise.resolve("cancel");
+    }
     var dialog = root.querySelector(".portal-modal-dialog");
     var formEl = root.querySelector("#portal-modal-form");
     var titleEl = root.querySelector("#portal-modal-title");
@@ -210,6 +216,9 @@
   function showFormModal(options) {
     options = options || {};
     var root = getModalRoot();
+    if (!root) {
+      return Promise.resolve(null);
+    }
     var dialog = root.querySelector(".portal-modal-dialog");
     var formEl = root.querySelector("#portal-modal-form");
     var titleEl = root.querySelector("#portal-form-title");
@@ -338,6 +347,11 @@
   }
 
   function enqueueToast(type, message, durationMs) {
+    var container = getToastContainer();
+    if (!container) {
+      return;
+    }
+
     toastQueue.push({
       type: type,
       message: message,
@@ -358,6 +372,10 @@
     enqueueToast("info", message, durationMs || INFO_TOAST_DURATION_MS);
   }
 
+  function toastWarning(message, durationMs) {
+    enqueueToast("info", message, durationMs || INFO_TOAST_DURATION_MS);
+  }
+
   global.PortalUI = {
     confirm: confirm,
     confirmUnsyncedLeave: confirmUnsyncedLeave,
@@ -367,6 +385,7 @@
     toastSuccess: toastSuccess,
     toastError: toastError,
     toastInfo: toastInfo,
+    toastWarning: toastWarning,
     escapeHtml: escapeHtml,
   };
 })(window);
