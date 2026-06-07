@@ -87,6 +87,69 @@ Flask Web App (employee UI + IT Portal)
 
 ---
 
+## Bedrock Agent Orchestration
+
+In addition to the Amazon Bedrock Knowledge Base, the application uses an Amazon Bedrock Agent to intelligently route requests to the most appropriate source.
+
+The agent can choose between:
+
+- Amazon Bedrock Knowledge Base (IT procedures and FAQs)
+- Service ownership lookup tool
+- Public IP lookup tool
+- Standard fallback response
+
+This allows the assistant to combine retrieval-based answers, structured enterprise data, and real-time external information while preventing unsupported responses.
+
+Typical routing examples:
+
+| User Question | Source |
+|--------------|--------|
+| How do I request VPN access? | Knowledge Base |
+| Who manages VPN? | Service Ownership Tool |
+| Where is IP address 8.8.8.8 located? | Public IP Lookup Tool |
+| Who manages Salesforce? | Fallback |
+
+---
+
+## Action Groups and Lambda Tools
+
+The Bedrock Agent uses an Action Group named:
+
+EmployeeSupportServices
+
+The Action Group invokes AWS Lambda functions to retrieve information that is not stored in the Knowledge Base.
+
+### Available Functions
+
+#### getServiceOwner
+
+Returns the approved internal owner for an IT service.
+
+Examples:
+
+- Who manages VPN?
+- Who owns GitLab?
+- Who is responsible for Jira?
+
+Flow:
+
+Employee → Agent → Action Group → Lambda → DynamoDB
+
+#### lookupIpAddress
+
+Returns public network information for a valid IPv4 or IPv6 address using an external public IP information service.
+
+Examples:
+
+- Where is IP address 8.8.8.8 located?
+- Look up IP 1.1.1.1
+
+Flow:
+
+Employee → Agent → Action Group → Lambda → External API
+
+---
+
 ## Bedrock Knowledge Base flow
 
 1. **Source content** — FAQ entries live in an S3 CSV object (default key: `it_support_faq_dataset.csv`, configurable via `KNOWLEDGE_BASE_CSV_S3_KEY`) plus supporting IT procedure documents under `knowledge_base/IT/`.
@@ -162,6 +225,70 @@ Used by the `getServiceOwner` Lambda tool.
 | Attributes | `teamName`, `contactEmail`, `escalation`, `notes` |
 
 Example: a record for `VPN` enables answers to “Who manages VPN?”
+
+---
+
+## ServiceOwners Table
+
+The ServiceOwners table stores approved ownership information for enterprise IT services.
+
+### Primary Key
+
+| Attribute | Type |
+|-----------|------|
+| serviceName | String |
+
+### Additional Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| teamName | Responsible support team |
+| contactEmail | Support contact |
+| escalation | Escalation path |
+| notes | Service-specific ownership details |
+
+Example services:
+
+- VPN
+- GitLab
+- Jira
+- MFA
+- ServiceNow
+- Production Access
+- Email
+- WiFi
+- SharePoint
+
+---
+
+## External IP Lookup Integration
+
+The assistant supports real-time public IP lookups through an external API accessed by AWS Lambda.
+
+The tool:
+
+- Validates IPv4 and IPv6 addresses
+- Rejects invalid addresses
+- Retrieves public network information
+- Returns geographic and organization details
+
+Typical information returned:
+
+- Country
+- Region
+- City
+- Organization / Network Owner
+- Time Zone
+
+Example:
+
+Question:
+
+Where is IP address 8.8.8.8 located?
+
+Result:
+
+The assistant retrieves current public information directly from the external API rather than relying on Knowledge Base content.
 
 ---
 
@@ -285,6 +412,50 @@ The application **can be deployed on Amazon EC2 using Docker Compose** and a con
 6. Restrict security groups to trusted corporate or VPN CIDR ranges.
 
 Deploying the Flask container does not by itself deploy Bedrock Agent, Lambda, or DynamoDB tables—provision those AWS resources separately and align them with the architecture above. Prior coursework deployments used EC2 for validation; stop instances when not in active use to control cost. See the [`screenshots/`](screenshots/) folder for example deployment captures.
+
+---
+
+## Demonstration Scenarios
+
+### Knowledge Base
+
+Question:
+
+How do I request VPN access?
+
+Source:
+
+Knowledge Base
+
+### DynamoDB Tool
+
+Question:
+
+Who manages VPN?
+
+Source:
+
+ServiceOwners DynamoDB table via Bedrock Agent Action Group
+
+### External API Tool
+
+Question:
+
+Where is IP address 8.8.8.8 located?
+
+Source:
+
+External Public IP Lookup API via Bedrock Agent Action Group
+
+### Fallback
+
+Question:
+
+Who manages Salesforce?
+
+Result:
+
+Standard IT Service Desk fallback response
 
 ---
 
