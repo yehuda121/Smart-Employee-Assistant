@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="portal-page portal-page--workspace">
   <a class="skip-link" href="#main-content">Skip to main content</a>
 
   <header class="site-header" role="banner">
@@ -40,27 +40,34 @@
   </header>
 
   <main id="main-content" class="main-content">
-    <div class="container page-intro">
-      <p class="page-context">
-        <span class="page-context-label">Workspace</span>
-        Knowledge Management
-      </p>
-      <p class="page-lead" id="portal-tab-intro">
-        Review employee question usage metrics. Removing an analytics record affects DynamoDB only and does not change Knowledge Base content.
-      </p>
+    <div class="container page-intro portal-workspace-intro">
+      <div class="portal-workspace-intro-inner">
+        <p class="page-context">
+          <span class="page-context-label">Workspace</span>
+          Knowledge Management
+        </p>
+        <p class="page-lead" id="portal-tab-intro">
+          Review employee question usage metrics. Removing an analytics record affects DynamoDB only and does not change Knowledge Base content.
+        </p>
+      </div>
     </div>
 
     <div class="container portal-container">
+      <div class="portal-tabs-shell">
       <div class="portal-tabs" role="tablist" aria-label="IT Portal sections">
         <button type="button" class="portal-tab is-active" data-tab="analytics" role="tab" aria-selected="true" aria-controls="portal-panel-analytics" id="portal-tab-analytics">
           Analytics
+        </button>
+        <button type="button" class="portal-tab" data-tab="charts" role="tab" aria-selected="false" aria-controls="portal-panel-charts" id="portal-tab-charts">
+          Charts
         </button>
         <button type="button" class="portal-tab" data-tab="knowledge" role="tab" aria-selected="false" aria-controls="portal-panel-knowledge" id="portal-tab-knowledge">
           Knowledge Base
         </button>
       </div>
+      </div>
 
-      <section id="portal-panel-analytics" class="portal-tab-panel workspace-card portal-table-card" data-tab-panel="analytics" role="tabpanel" aria-labelledby="portal-tab-analytics">
+      <section id="portal-panel-analytics" class="portal-tab-panel workspace-card portal-table-card portal-panel-card" data-tab-panel="analytics" role="tabpanel" aria-labelledby="portal-tab-analytics">
         <header class="panel-header panel-header--primary portal-table-header">
           <div class="panel-icon panel-icon--analytics portal-table-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -118,12 +125,53 @@
             <tbody id="analytics-tbody"></tbody>
           </table>
         </div>
-        <p class="portal-empty" id="portal-analytics-empty" hidden>No question analytics are available.</p>
+        <p class="portal-empty portal-empty-state" id="portal-analytics-empty" hidden>No question analytics are available.</p>
         <script id="analytics-data" type="application/json">{{ questions | tojson }}</script>
         {% endif %}
       </section>
 
-      <section id="portal-panel-knowledge" class="portal-tab-panel workspace-card portal-table-card" data-tab-panel="knowledge" role="tabpanel" aria-labelledby="portal-tab-knowledge" hidden>
+      <section id="portal-panel-charts" class="portal-tab-panel workspace-card portal-table-card portal-panel-card" data-tab-panel="charts" role="tabpanel" aria-labelledby="portal-tab-charts" hidden>
+        <header class="panel-header panel-header--primary portal-table-header">
+          <div class="panel-icon panel-icon--analytics portal-table-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 20V10M10 20V4M16 20v-6M22 20H2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="panel-header-text portal-table-header-text">
+            <h2 class="panel-title">Analytics charts</h2>
+            <p class="panel-description">
+              Visual summaries derived from stored question analytics in DynamoDB. Charts refresh when you open this tab.
+            </p>
+          </div>
+        </header>
+
+        <div class="portal-charts-section" id="portal-charts-section">
+          <div class="portal-charts-loading portal-loading portal-loading-state" id="portal-charts-loading" role="status">
+            <span class="portal-loading-spinner" aria-hidden="true"></span>
+            <span class="portal-loading-text">Loading analytics charts…</span>
+          </div>
+          <p class="portal-charts-error portal-alert portal-alert--error" id="portal-charts-error" hidden></p>
+          <p class="portal-empty portal-empty-state" id="portal-charts-panel-empty" hidden>No analytics data is available yet.</p>
+          <div class="portal-charts-grid" id="portal-charts-grid" hidden>
+            <article class="portal-chart-card">
+              <h3 class="portal-chart-title">Top Requested IT Topics</h3>
+              <div class="portal-chart-canvas-wrap">
+                <canvas id="portal-chart-topics" aria-label="Top requested IT topics bar chart" role="img"></canvas>
+              </div>
+              <p class="portal-chart-description">Helps IT identify which support areas generate the most employee demand.</p>
+            </article>
+            <article class="portal-chart-card portal-chart-card--wide">
+              <h3 class="portal-chart-title">Fallback Trend</h3>
+              <div class="portal-chart-canvas-wrap">
+                <canvas id="portal-chart-fallback" aria-label="Fallback trend line chart" role="img"></canvas>
+              </div>
+              <p class="portal-chart-description">Helps track whether unsupported questions decrease as the knowledge base improves.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="portal-panel-knowledge" class="portal-tab-panel workspace-card portal-table-card portal-panel-card" data-tab-panel="knowledge" role="tabpanel" aria-labelledby="portal-tab-knowledge" hidden>
         <header class="panel-header panel-header--primary portal-table-header portal-kb-header">
           <div class="panel-icon panel-icon--primary portal-table-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -136,10 +184,10 @@
             <p class="panel-description">
               Manage FAQ source entries in S3. Changes save immediately and remain pending until you synchronize with Bedrock.
             </p>
-            <p class="portal-kb-last-sync">
-              <span class="portal-kb-sync-label">Last Sync Requested:</span>
-              <span id="kb-last-sync-value" class="portal-kb-sync-value">Not available</span>
-            </p>
+            <div class="portal-kb-sync-panel">
+              <span class="portal-kb-sync-label">Last Sync Requested</span>
+              <span id="kb-last-sync-value" class="portal-kb-sync-value portal-kb-sync-badge">Not available</span>
+            </div>
           </div>
           <div class="portal-kb-header-actions">
             <button type="button" id="knowledge-sync-btn" class="btn btn-primary">
@@ -149,7 +197,8 @@
           </div>
         </header>
 
-        <div id="kb-unsynced-banner" class="portal-kb-banner" role="status" hidden>
+        <div id="kb-unsynced-banner" class="portal-kb-banner portal-kb-banner--pending" role="status" hidden>
+          <span class="portal-kb-banner-icon" aria-hidden="true">!</span>
           <div class="portal-kb-banner-content">
             <strong>Knowledge Base changes are pending synchronization.</strong>
             <span>Employees will not see these updates until synchronization is completed.</span>
@@ -164,7 +213,10 @@
           <button type="button" id="knowledge-add-btn" class="btn btn-primary">Add Knowledge</button>
         </div>
 
-        <p class="portal-loading" id="portal-knowledge-loading" hidden>Loading Knowledge Base entries…</p>
+        <p class="portal-loading portal-loading-state" id="portal-knowledge-loading" hidden>
+          <span class="portal-loading-spinner" aria-hidden="true"></span>
+          <span class="portal-loading-text">Loading Knowledge Base entries…</span>
+        </p>
 
         <div class="portal-table-wrap" id="portal-knowledge-table-wrap" hidden>
           <table class="portal-table" id="knowledge-table">
@@ -197,7 +249,7 @@
           <button type="button" id="knowledge-next-btn" class="btn btn-secondary btn-sm">Next</button>
         </div>
 
-        <p class="portal-empty" id="portal-knowledge-empty" hidden>No Knowledge Base entries are available.</p>
+        <p class="portal-empty portal-empty-state" id="portal-knowledge-empty" hidden>No Knowledge Base entries are available.</p>
       </section>
     </div>
   </main>
@@ -237,6 +289,7 @@
   <script>
     window.IT_PORTAL_CONFIG = {
       analyticsDeleteUrlTemplate: {{ analytics_delete_url_template | tojson }},
+      analyticsChartsUrl: {{ analytics_charts_url | tojson }},
       knowledgeListUrl: {{ knowledge_list_url | tojson }},
       knowledgeSyncUrl: {{ knowledge_sync_url | tojson }},
       knowledgeSyncStatusUrl: {{ knowledge_sync_status_url | tojson }},
@@ -246,6 +299,7 @@
       knowledgeDeleteUrlTemplate: {{ knowledge_delete_url_template | tojson }}
     };
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="{{ url_for('static', filename='js/portal-ui.js') }}"></script>
   <script src="{{ url_for('static', filename='js/it-portal.js') }}"></script>
 </body>

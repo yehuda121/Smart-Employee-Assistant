@@ -31,6 +31,7 @@ from question_stats import (
     SORT_POPULAR,
     SORT_RECENT,
     delete_question,
+    get_analytics_chart_data,
     get_kb_sync_status,
     get_questions,
     get_top_questions,
@@ -646,6 +647,7 @@ def it_portal():
         home_url=url_for("index"),
         logout_url=url_for("it_logout"),
         analytics_delete_url_template=url_for("it_portal_delete_analytics", question_id="__ID__"),
+        analytics_charts_url=url_for("it_portal_analytics_charts"),
         knowledge_list_url=url_for("it_portal_list_knowledge"),
         knowledge_sync_url=url_for("it_portal_sync_knowledge"),
         knowledge_sync_status_url=url_for("it_portal_sync_status"),
@@ -666,6 +668,18 @@ def it_portal_delete_analytics(question_id: str):
         "success": True,
         "message": "Analytics record deleted successfully.",
     })
+
+
+@app.route("/it-portal/api/analytics/charts", methods=["GET"])
+@require_it_portal
+def it_portal_analytics_charts():
+    """Return aggregated chart data from existing QuestionStats records."""
+    chart_data, ok = get_analytics_chart_data()
+    if not ok:
+        logger.error("IT Portal analytics charts failed to load.")
+        return jsonify({"success": False, "error": "Unable to load analytics charts."}), 500
+
+    return jsonify({"success": True, **chart_data})
 
 
 @app.route("/it-portal/api/knowledge", methods=["GET"])

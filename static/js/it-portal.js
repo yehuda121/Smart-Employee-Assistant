@@ -20,6 +20,19 @@
   };
   var isSyncing = false;
   var allowNavigationWithoutSyncWarning = false;
+  var portalCharts = {
+    topics: null,
+    fallback: null,
+  };
+
+  var CHART_COLORS = {
+    primary: "#2f6fed",
+    primarySoft: "rgba(47, 111, 237, 0.72)",
+    navy: "#122a4d",
+    slate: "#64748b",
+    grid: "rgba(18, 42, 77, 0.08)",
+    palette: ["#2f6fed", "#2558c7", "#5b8def", "#234b7a", "#1a3a66", "#64748b", "#94a3b8", "#cbd5e1"],
+  };
 
   function hasPendingSync() {
     return syncState.isSynced === false;
@@ -265,6 +278,9 @@
     if (tabName === "knowledge") {
       loadKnowledgeEntries();
     }
+    if (tabName === "charts") {
+      loadPortalCharts();
+    }
   }
 
   function switchTab(tabName) {
@@ -280,10 +296,16 @@
 
     var intro = $("#portal-tab-intro");
     if (intro) {
-      intro.textContent =
-        tabName === "knowledge"
-          ? "Manage Knowledge Base source entries in S3. Changes save immediately and remain pending until you synchronize with Bedrock."
-          : "Review employee question usage metrics. Removing an analytics record affects DynamoDB only and does not change Knowledge Base content.";
+      if (tabName === "knowledge") {
+        intro.textContent =
+          "Manage Knowledge Base source entries in S3. Changes save immediately and remain pending until you synchronize with Bedrock.";
+      } else if (tabName === "charts") {
+        intro.textContent =
+          "Review visual summaries of employee support demand and fallback activity from stored analytics data.";
+      } else {
+        intro.textContent =
+          "Review employee question usage metrics. Removing an analytics record affects DynamoDB only and does not change Knowledge Base content.";
+      }
     }
   }
 
@@ -428,6 +450,220 @@
           PortalUI.toastError("Unable to delete record.");
         });
     });
+  }
+
+  function destroyPortalCharts() {
+    Object.keys(portalCharts).forEach(function (key) {
+      if (portalCharts[key]) {
+        portalCharts[key].destroy();
+        portalCharts[key] = null;
+      }
+    });
+  }
+
+  function renderTopicsChart(rows) {
+    var canvas = $("#portal-chart-topics");
+    if (!canvas || typeof Chart === "undefined") {
+      return;
+    }
+
+    if (portalCharts.topics) {
+      portalCharts.topics.destroy();
+    }
+
+    portalCharts.topics = new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: rows.map(function (row) {
+          return row.topic;
+        }),
+        datasets: [
+          {
+            label: "Requests",
+            data: rows.map(function (row) {
+              return row.count;
+            }),
+            backgroundColor: CHART_COLORS.primarySoft,
+            borderColor: CHART_COLORS.primary,
+            borderWidth: 1,
+            borderRadius: 4,
+            maxBarThickness: 36,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                return "Requests: " + context.parsed.y;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color: CHART_COLORS.slate, maxRotation: 45, minRotation: 0 },
+            grid: { display: false },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: CHART_COLORS.slate, precision: 0 },
+            grid: { color: CHART_COLORS.grid },
+          },
+        },
+      },
+    });
+  }
+
+  function renderFallbackChart(rows) {
+    var canvas = $("#portal-chart-fallback");
+    if (!canvas || typeof Chart === "undefined") {
+      return;
+    }
+
+    if (portalCharts.fallback) {
+      portalCharts.fallback.destroy();
+    }
+
+    portalCharts.fallback = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: rows.map(function (row) {
+          return row.date;
+        }),
+        datasets: [
+          {
+            label: "Fallback count",
+            data: rows.map(function (row) {
+              return row.count;
+            }),
+            borderColor: CHART_COLORS.primary,
+            backgroundColor: "rgba(47, 111, 237, 0.12)",
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 4,
+            tension: 0.25,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+        },
+        scales: {
+          x: {
+            ticks: { color: CHART_COLORS.slate, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 },
+            grid: { display: false },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: CHART_COLORS.slate, precision: 0 },
+            grid: { color: CHART_COLORS.grid },
+          },
+        },
+      },
+    });
+  }
+
+  function setChartsLoading(isLoading) {
+    var loadingEl = $("#portal-charts-loading");
+    var gridEl = $("#portal-charts-grid");
+    var errorEl = $("#portal-charts-error");
+    var panelEmptyEl = $("#portal-charts-panel-empty");
+    if (loadingEl) {
+      loadingEl.hidden = !isLoading;
+    }
+    if (isLoading && gridEl) {
+      gridEl.hidden = true;
+    }
+    if (isLoading && errorEl) {
+      errorEl.hidden = true;
+    }
+    if (isLoading && panelEmptyEl) {
+      panelEmptyEl.hidden = true;
+    }
+  }
+
+  function showChartsError(message) {
+    var errorEl = $("#portal-charts-error");
+    var gridEl = $("#portal-charts-grid");
+    var panelEmptyEl = $("#portal-charts-panel-empty");
+    destroyPortalCharts();
+    if (errorEl) {
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    }
+    if (gridEl) {
+      gridEl.hidden = true;
+    }
+    if (panelEmptyEl) {
+      panelEmptyEl.hidden = true;
+    }
+  }
+
+  function loadPortalCharts() {
+    var chartsRoot = $("#portal-charts-section");
+    if (!chartsRoot || !config.analyticsChartsUrl) {
+      return Promise.resolve(false);
+    }
+
+    setChartsLoading(true);
+
+    return fetchJson(config.analyticsChartsUrl, {
+      headers: { Accept: "application/json" },
+    })
+      .then(function (result) {
+        setChartsLoading(false);
+
+        if (!result.ok || !result.data.success) {
+          showChartsError(getApiErrorMessage(result, "Unable to load analytics charts."));
+          return false;
+        }
+
+        var gridEl = $("#portal-charts-grid");
+        var panelEmptyEl = $("#portal-charts-panel-empty");
+        var errorEl = $("#portal-charts-error");
+
+        if (errorEl) {
+          errorEl.hidden = true;
+        }
+
+        if (!result.data.hasRecords) {
+          destroyPortalCharts();
+          if (gridEl) {
+            gridEl.hidden = true;
+          }
+          if (panelEmptyEl) {
+            panelEmptyEl.hidden = false;
+          }
+          return true;
+        }
+
+        if (panelEmptyEl) {
+          panelEmptyEl.hidden = true;
+        }
+        if (gridEl) {
+          gridEl.hidden = false;
+        }
+
+        renderTopicsChart(result.data.topTopics || []);
+        renderFallbackChart(result.data.fallbackTrend || []);
+        return true;
+      })
+      .catch(function () {
+        setChartsLoading(false);
+        showChartsError("Unable to load analytics charts.");
+        return false;
+      });
   }
 
   function initAnalytics() {

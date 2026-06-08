@@ -22,6 +22,33 @@ ENTITY_TYPE_QUESTION = "QUESTION"
 ENTITY_TYPE_SYSTEM = "SYSTEM"
 KB_SYNC_STATUS_ID = "SYSTEM#KB_SYNC_STATUS"
 
+TOPIC_LABELS: tuple[str, ...] = (
+    "VPN",
+    "Password Reset",
+    "MFA",
+    "Production Access",
+    "GitLab",
+    "Software Installation",
+    "Hardware / Laptop",
+    "Email",
+    "WiFi",
+    "ServiceNow",
+    "Other",
+)
+
+_TOPIC_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("VPN", (r"\bvpn\b", r"remote access", r"globalprotect")),
+    ("Password Reset", (r"password", r"reset", r"locked account", r"forgot")),
+    ("MFA", (r"\bmfa\b", r"multi.factor", r"okta", r"authenticator")),
+    ("Production Access", (r"production", r"prod access", r"cyberark", r"jump host")),
+    ("GitLab", (r"gitlab",)),
+    ("Software Installation", (r"software", r"install", r"license", r"catalog", r"company portal")),
+    ("Hardware / Laptop", (r"laptop", r"hardware", r"replacement", r"new device")),
+    ("Email", (r"\bemail\b", r"outlook", r"mailbox")),
+    ("WiFi", (r"\bwifi\b", r"wireless", r"wi-fi")),
+    ("ServiceNow", (r"servicenow", r"incident", r"ticket", r"service desk")),
+)
+
 SORT_POPULAR = "popular"
 SORT_RECENT = "recent"
 SORT_FALLBACKS = "fallbacks"
@@ -215,6 +242,79 @@ def seed_questions_if_empty() -> None:
         logger.exception("Failed to seed QuestionStats table: %s", exc)
     except Exception as exc:
         logger.exception("Unexpected error seeding QuestionStats table: %s", exc)
+
+
+def classify_topic(question: str) -> str:
+    """Classify a question into a support topic using keyword rules."""
+    normalized = normalize_question_key(question)
+    if not normalized:
+        return "Other"
+
+    for topic, patterns in _TOPIC_PATTERNS:
+        if any(re.search(pattern, normalized) for pattern in patterns):
+            return topic
+    return "Other"
+
+
+def _iso_to_date(iso_value: str | None) -> str | None:
+    """Extract YYYY-MM-DD from an ISO timestamp."""
+    if not iso_value or not isinstance(iso_value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
+
+
+def _aggregate_top_topics(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    topic_counts = {topic: 0 for topic in TOPIC_LABELS}
+    for record in records:
+        topic = classify_topic(record["question"])
+        topic_counts[topic] = topic_counts.get(topic, 0) + record["count"]
+
+    top_topics = [
+        {"topic": topic, "count": topic_counts[topic]}
+        for topic in TOPIC_LABELS
+        if topic_counts[topic] > 0
+    ]
+    top_topics.sort(key=lambda row: (-row["count"], row["topic"]))
+    return top_topics
+
+
+def _aggregate_fallback_trend(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sum fallbackCount values by calendar date using lastAskedAt, then createdAt."""
+    daily_counts: dict[str, int] = {}
+    for record in records:
+        activity_date = _iso_to_date(record.get("lastAskedAt")) or _iso_to_date(record.get("createdAt"))
+        if not activity_date:
+            continue
+        daily_counts[activity_date] = daily_counts.get(activity_date, 0) + record["fallbackCount"]
+
+    return [{"date": day, "count": daily_counts[day]} for day in sorted(daily_counts.keys())]
+
+
+def get_analytics_chart_data() -> tuple[dict[str, Any], bool]:
+    """
+    Return aggregated chart data from existing QuestionStats records only.
+    Does not read or write any additional DynamoDB attributes.
+    """
+    try:
+        records, success = get_questions(sort_by=None)
+        if not success:
+            return {}, False
+
+        has_records = len(records) > 0
+        return {
+            "hasRecords": has_records,
+            "topTopics": _aggregate_top_topics(records) if has_records else [],
+            "fallbackTrend": _aggregate_fallback_trend(records) if has_records else [],
+        }, True
+    except Exception as exc:
+        logger.exception("Unexpected error building analytics chart data: %s", exc)
+        return {}, False
 
 
 def record_question(question: str, *, is_fallback: bool = False) -> None:
