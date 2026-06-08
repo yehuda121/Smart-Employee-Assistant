@@ -47,6 +47,33 @@ Behind the UI, Amazon Bedrock orchestrates answering through a Knowledge Base (S
 
 ---
 
+## Analytics Charts
+
+The IT Portal **Charts** tab provides read-only analytics dashboards for IT Operations. The charts aggregate existing QuestionStats records in DynamoDB and help teams understand question usage, popular employee needs, fallback patterns, and Knowledge Base coverage gaps.
+
+Available visualizations include **Top Requested IT Topics** (bar chart) and **Fallback Trend** (line chart). Data is loaded through `GET /it-portal/api/analytics/charts` and requires an authenticated IT Portal session.
+
+Operational insights supported by IT Portal analytics and charts:
+
+- **Most Popular Questions** — highlights the highest-volume employee requests to prioritize support and documentation effort
+- **Recently Asked Questions** — surfaces current demand and emerging topics from recent activity
+- **Fallback Rate / Fallback Questions** — tracks unsupported questions over time to monitor gaps in approved content and tooling
+- **Knowledge Base usage insights** — topic aggregation helps identify categories where employees ask frequently but verified answers may be missing or weak
+
+---
+
+## Business Value
+
+Smart Employee Assistant delivers practical value for IT Operations and employees:
+
+- Reduces repetitive IT Service Desk workload by answering common procedure questions automatically
+- Gives employees faster access to approved answers through a single self-service entry point
+- Improves visibility into recurring IT issues through QuestionStats analytics and IT Portal charts
+- Helps IT teams identify missing or weak Knowledge Base content using usage metrics, fallback trends, and topic breakdowns
+- Prevents unsupported or hallucinated answers by routing responses through verified Knowledge Base content, registered tools, and standard fallback behavior when no approved source applies
+
+---
+
 ## Architecture
 
 ```
