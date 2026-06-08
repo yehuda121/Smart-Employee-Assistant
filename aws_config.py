@@ -26,6 +26,11 @@ REQUIRED_CREDENTIAL_VARS = (
     "BEDROCK_MODEL_ARN",
 )
 
+REQUIRED_AGENT_VARS = (
+    "BEDROCK_AGENT_ID",
+    "BEDROCK_AGENT_ALIAS_ID",
+)
+
 _UPLOAD_CONFIG: dict[str, str] | None = None
 
 
@@ -36,8 +41,17 @@ def validate_upload_account_config() -> dict[str, Any]:
     """
     missing: list[str] = []
     raw: dict[str, str] = {}
+    use_mock = os.getenv("USE_MOCK_ANSWER", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    required_names = list(REQUIRED_UPLOAD_ACCOUNT_VARS) + list(REQUIRED_CREDENTIAL_VARS)
+    if not use_mock:
+        required_names.extend(REQUIRED_AGENT_VARS)
 
-    for name in REQUIRED_UPLOAD_ACCOUNT_VARS + REQUIRED_CREDENTIAL_VARS:
+    for name in required_names:
         value = os.getenv(name, "").strip()
         if not value:
             missing.append(name)
@@ -61,6 +75,11 @@ def validate_upload_account_config() -> dict[str, Any]:
         "ACTIVE_BUCKET_NAME": raw["Bucket_Name_uploadAccount"],
         "ACTIVE_IAM_ROLE_ARN": raw["IAM_Role_ARN_uploadAccount"],
         "ACTIVE_QUESTION_STATS_TABLE": raw["QUESTION_STATS_TABLE"],
+        "BEDROCK_AGENT_ID": raw.get("BEDROCK_AGENT_ID", os.getenv("BEDROCK_AGENT_ID", "").strip()),
+        "BEDROCK_AGENT_ALIAS_ID": raw.get(
+            "BEDROCK_AGENT_ALIAS_ID",
+            os.getenv("BEDROCK_AGENT_ALIAS_ID", "").strip(),
+        ),
     }
 
     global _UPLOAD_CONFIG
@@ -83,4 +102,7 @@ def log_upload_account_configuration(config: dict[str, Any]) -> None:
     logger.info("Active Data Source ID (uploadAccount): %s", config["ACTIVE_DATA_SOURCE_ID"])
     logger.info("Active S3 bucket (uploadAccount): %s", config["ACTIVE_BUCKET_NAME"])
     logger.info("Active DynamoDB table: %s", config["ACTIVE_QUESTION_STATS_TABLE"])
+    if config.get("BEDROCK_AGENT_ID"):
+        logger.info("Active Bedrock Agent ID: %s", config["BEDROCK_AGENT_ID"])
+        logger.info("Active Bedrock Agent alias ID: %s", config["BEDROCK_AGENT_ALIAS_ID"])
     logger.info("AWS authentication source: environment variables (.env)")

@@ -83,7 +83,7 @@ Flask Web App (employee UI + IT Portal)
        +-- Analytics ---------> DynamoDB QuestionStats (+ KB sync status record)
 ```
 
-**Repository integration note:** The Flask application in this repository invokes Amazon Bedrock through the AWS SDK (`bedrock-agent-runtime`) using grounded Knowledge Base retrieval (`retrieve_and_generate`) with strict citation and fallback checks. Bedrock Agent, Action Groups, Lambda, and the ServiceOwners table are companion AWS resources that extend the solution for service-owner and IP lookup questions as described below.
+**Repository integration note:** The Flask application routes employee questions through Amazon Bedrock Agent (`invoke_agent`) in live mode so the agent can choose Knowledge Base retrieval, Action Group tools, or fallback behavior. Direct Knowledge Base `retrieve_and_generate` remains as a safe fallback if Agent invocation fails. Set `USE_MOCK_ANSWER=true` to bypass Bedrock during local UI testing.
 
 ---
 
@@ -329,6 +329,8 @@ Copy `.env.example` to `.env`. Credentials load **only** from environment variab
 | `AWS_ACCESS_KEY_ID` | AWS access key — **required at startup** |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key — **required at startup** |
 | `BEDROCK_MODEL_ARN` | Foundation model ARN — **required at startup** |
+| `BEDROCK_AGENT_ID` | Bedrock Agent ID for live employee Q&A — **required when `USE_MOCK_ANSWER=false`** |
+| `BEDROCK_AGENT_ALIAS_ID` | Bedrock Agent alias ID — **required when `USE_MOCK_ANSWER=false`** |
 | `USE_MOCK_ANSWER` | `true` to skip live Bedrock calls |
 | `QUESTION_STATS_TABLE` | DynamoDB table for analytics and KB sync status |
 | `AWS_REGION_uploadAccount` | Active AWS region |
@@ -343,7 +345,7 @@ Copy `.env.example` to `.env`. Credentials load **only** from environment variab
 
 **Active profile:** Runtime uses **uploadAccount** variables for Bedrock, S3, and DynamoDB.
 
-**Lambda / Agent setup (AWS console):** Configure the Bedrock Agent, Action Group `EmployeeSupportServices`, Lambda `employee_support_services.py`, ServiceOwners table, and IAM permissions separately in AWS. Do not commit secrets or resource IDs to source control.
+**Lambda / Agent setup (AWS console):** Configure the Bedrock Agent, alias, Action Group `EmployeeSupportServices`, Lambda `employee_support_services.py`, ServiceOwners table, and IAM permissions in AWS. The Flask app invokes the agent in live mode using `BEDROCK_AGENT_ID` and `BEDROCK_AGENT_ALIAS_ID`. Do not commit secrets or resource IDs to source control.
 
 ---
 

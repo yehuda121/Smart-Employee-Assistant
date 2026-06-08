@@ -10,6 +10,7 @@ load_dotenv()
 import logging
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable
@@ -233,6 +234,73 @@ def query_knowledge_base(question: str) -> str:
     return answer
 
 
+def _parse_agent_completion(completion: Any) -> str:
+    """Extract plain text from the Bedrock Agent streaming completion payload."""
+    if completion is None:
+        return ""
+
+    parts: list[str] = []
+    try:
+        for event in completion:
+            if not isinstance(event, dict):
+                continue
+            chunk = event.get("chunk")
+            if not chunk:
+                continue
+            payload = chunk.get("bytes")
+            if payload:
+                parts.append(payload.decode("utf-8"))
+    except (TypeError, AttributeError, UnicodeDecodeError) as exc:
+        logger.warning("Unexpected Bedrock Agent completion event shape: %s", exc)
+        return ""
+
+    return "".join(parts).strip()
+
+
+def query_bedrock_agent(question: str) -> str:
+    """
+    Route the employee question through the configured Bedrock Agent.
+
+    The agent selects Knowledge Base retrieval, Action Group tools, or fallback behavior.
+    """
+    client = get_bedrock_client()
+    agent_id = AWS_CONFIG["BEDROCK_AGENT_ID"]
+    agent_alias_id = AWS_CONFIG["BEDROCK_AGENT_ALIAS_ID"]
+    session_id = str(uuid.uuid4())
+
+    logger.info(
+        "Invoking Bedrock Agent: agentId=%s, agentAliasId=%s, sessionId=%s",
+        agent_id,
+        agent_alias_id,
+        session_id,
+    )
+
+    try:
+        response = client.invoke_agent(
+            agentId=agent_id,
+            agentAliasId=agent_alias_id,
+            sessionId=session_id,
+            inputText=question,
+        )
+    except (ClientError, BotoCoreError) as exc:
+        logger.exception("Bedrock Agent invoke_agent failed: %s", exc)
+        raise
+
+    answer = _parse_agent_completion(response.get("completion"))
+    if not answer:
+        logger.warning("Bedrock Agent returned an empty answer.")
+        return KB_NOT_FOUND_MESSAGE
+
+    if _indicates_no_kb_match(answer):
+        logger.info(
+            "Bedrock Agent response indicates no verified match; returning standard fallback."
+        )
+        return KB_NOT_FOUND_MESSAGE
+
+    logger.info("Bedrock Agent completed successfully (%d characters).", len(answer))
+    return answer
+
+
 def generate_mock_answer(question: str) -> str:
     """Return a professional mock answer for local and Docker testing without Bedrock."""
     q = question.lower()
@@ -430,11 +498,19 @@ def _load_sync_status_response() -> tuple[dict[str, Any], bool]:
 
 
 def get_answer(question: str) -> str:
-    """Resolve an answer using mock mode or Amazon Bedrock Knowledge Base."""
+    """Resolve an answer using mock mode or the configured Bedrock Agent."""
     if _env_bool("USE_MOCK_ANSWER", default=False):
-        logger.info("Returning mock answer (USE_MOCK_ANSWER=true).")
+        logger.info("Answer path: mock mode (USE_MOCK_ANSWER=true).")
         return generate_mock_answer(question)
-    return query_knowledge_base(question)
+
+    logger.info("Answer path: Bedrock Agent (invoke_agent).")
+    try:
+        return query_bedrock_agent(question)
+    except (ClientError, BotoCoreError):
+        logger.warning(
+            "Bedrock Agent unavailable; falling back to direct Knowledge Base retrieval."
+        )
+        return query_knowledge_base(question)
 
 
 def _wants_json_response() -> bool:
