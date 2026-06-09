@@ -141,6 +141,65 @@ def validate_question(raw: str | None) -> tuple[str | None, str | None]:
     return question, None
 
 
+SESSION_MEMORY_LAST_QUESTION = "last_question"
+SESSION_MEMORY_LAST_ANSWER = "last_answer"
+
+_SESSION_MEMORY_LAST_QUESTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^what was my (?:last|previous) question\??$", re.IGNORECASE),
+    re.compile(r"^what did i ask (?:before|previously|last)\??$", re.IGNORECASE),
+    re.compile(r"^my (?:last|previous) question\??$", re.IGNORECASE),
+    re.compile(r"^what was the last question i asked\??$", re.IGNORECASE),
+)
+
+_SESSION_MEMORY_LAST_ANSWER_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^what was your (?:last|previous) answer\??$", re.IGNORECASE),
+    re.compile(r"^what did you (?:say|answer) (?:before|last|previously)\??$", re.IGNORECASE),
+    re.compile(r"^your (?:last|previous) answer\??$", re.IGNORECASE),
+    re.compile(r"^repeat your(?: last)? answer\??$", re.IGNORECASE),
+)
+
+
+def _normalize_session_memory_query(question: str) -> str:
+    """Normalize a question for strict session-memory pattern matching."""
+    return re.sub(r"\s+", " ", question.strip())
+
+
+def classify_session_memory_request(question: str) -> str | None:
+    """
+    Return the session-memory request type when the question is only about
+    previous conversation context. Normal IT questions return None.
+    """
+    normalized = _normalize_session_memory_query(question)
+    if any(pattern.match(normalized) for pattern in _SESSION_MEMORY_LAST_QUESTION_PATTERNS):
+        return SESSION_MEMORY_LAST_QUESTION
+    if any(pattern.match(normalized) for pattern in _SESSION_MEMORY_LAST_ANSWER_PATTERNS):
+        return SESSION_MEMORY_LAST_ANSWER
+    return None
+
+
+def resolve_session_memory_answer(memory_type: str) -> str:
+    """Answer a session-memory request from Flask session metadata only."""
+    if memory_type == SESSION_MEMORY_LAST_QUESTION:
+        previous_question = session.get(SESSION_MEMORY_LAST_QUESTION)
+        if previous_question:
+            return f"Your last question in this session was: {previous_question}"
+        return "No previous question is stored for this session."
+
+    if memory_type == SESSION_MEMORY_LAST_ANSWER:
+        previous_answer = session.get(SESSION_MEMORY_LAST_ANSWER)
+        if previous_answer:
+            return f"My last answer in this session was: {previous_answer}"
+        return "No previous answer is stored for this session."
+
+    return "No previous question or answer is stored for this session."
+
+
+def update_session_memory(question: str, answer: str) -> None:
+    """Store minimal conversation metadata for the current browser session only."""
+    session[SESSION_MEMORY_LAST_QUESTION] = question
+    session[SESSION_MEMORY_LAST_ANSWER] = answer
+
+
 def extract_answer(response: dict[str, Any]) -> str | None:
     """Safely extract generated text from Bedrock retrieve_and_generate response."""
     try:
@@ -828,10 +887,24 @@ def ask():
         return jsonify({"success": False, "error": validation_error}), 400
 
     try:
-        answer = get_answer(question)
-        record_question(question, is_fallback=is_fallback_answer(answer))
         sort_mode = _normalize_sidebar_sort(payload.get("sort"))
         common = get_top_questions(mode=sort_mode)
+
+        memory_type = classify_session_memory_request(question)
+        if memory_type:
+            answer = resolve_session_memory_answer(memory_type)
+            update_session_memory(question, answer)
+            return jsonify({
+                "success": True,
+                "answer": answer,
+                "question": question,
+                "common_questions": common,
+                "sort": sort_mode,
+            })
+
+        answer = get_answer(question)
+        record_question(question, is_fallback=is_fallback_answer(answer))
+        update_session_memory(question, answer)
 
         return jsonify({
             "success": True,

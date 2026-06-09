@@ -211,10 +211,28 @@
         });
       }
 
+      function escapeHtml(text) {
+        return String(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function renderSafeBasicMarkdown(text) {
+        var escaped = escapeHtml(text);
+        return escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+      }
+
       function showResponse(question, answer, isError) {
         responseSection.hidden = false;
         responseQuestion.textContent = "Q: " + question;
-        responseBody.textContent = answer;
+        if (isError) {
+          responseBody.textContent = answer;
+        } else {
+          responseBody.innerHTML = renderSafeBasicMarkdown(answer);
+        }
         responseBody.classList.toggle("response-error", isError);
         responseSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }

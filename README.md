@@ -29,6 +29,8 @@ Behind the UI, Amazon Bedrock orchestrates answering through a Knowledge Base (S
 - **Most Popular** and **Recently Asked** question views (top 10 from DynamoDB)
 - `POST /ask` API with JSON responses and server-side validation (max 500 characters)
 - Grounded answering with fallback when no verified source applies
+- Temporary session-level conversation memory for basic previous-question and previous-answer queries (Flask session only; not persisted in DynamoDB; does not change the approved-source answering policy for IT questions)
+- Safe answer formatting in the UI so basic Markdown such as **bold** is rendered cleanly instead of showing raw syntax
 - Mock mode (`USE_MOCK_ANSWER=true`) for UI and deployment testing without Bedrock
 
 ### IT Portal
